@@ -215,6 +215,26 @@ func (ss *segmentStack) merge(newTopLevel int, base *segmentStack) (
 		return nil, err
 	}
 
+	err = ss.mergeInto(newTopLevel, mergedSegment, base)
+	if err != nil {
+		return nil, err
+	}
+
+	var a []*segment
+
+	a = append(a, ss.a[0:newTopLevel]...)
+	a = append(a, mergedSegment)
+
+	return &segmentStack{
+		options:            ss.options,
+		a:                  a,
+		refs:               1,
+		lowerLevelSnapshot: ss.lowerLevelSnapshot.addRef(),
+	}, nil
+}
+
+func (ss *segmentStack) mergeInto(newTopLevel int, dest SegmentMutator,
+	base *segmentStack) error {
 	iter, err := ss.startIterator(nil, nil, IteratorOptions{
 		IncludeDeletions: true,
 		SkipLowerLevel:   true,
@@ -223,7 +243,7 @@ func (ss *segmentStack) merge(newTopLevel int, base *segmentStack) (
 		base:             base,
 	})
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	defer iter.Close()
@@ -235,7 +255,7 @@ OUTER:
 			break
 		}
 		if err != nil {
-			return nil, err
+			return err
 		}
 
 		if len(iter.cursors) == 1 {
@@ -250,9 +270,9 @@ OUTER:
 			for pos := cursor.pos; pos < segmentOps; pos++ {
 				op, k, v := segment.getOperationKeyVal(pos)
 
-				err = mergedSegment.mutate(op, k, v)
+				err = dest.Mutate(op, k, v)
 				if err != nil {
-					return nil, err
+					return err
 				}
 			}
 
@@ -265,7 +285,7 @@ OUTER:
 			// inefficient and not lazy enough right now.
 			val, err = ss.get(key, len(ss.a)-1, base)
 			if err != nil {
-				return nil, err
+				return err
 			}
 
 			if val == nil {
@@ -275,9 +295,9 @@ OUTER:
 			}
 		}
 
-		err = mergedSegment.mutate(op, key, val)
+		err = dest.Mutate(op, key, val)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
 		err = iter.Next()
@@ -285,21 +305,11 @@ OUTER:
 			break
 		}
 		if err != nil {
-			return nil, err
+			return err
 		}
 	}
 
-	var a []*segment
-
-	a = append(a, ss.a[0:newTopLevel]...)
-	a = append(a, mergedSegment)
-
-	return &segmentStack{
-		options:            ss.options,
-		a:                  a,
-		refs:               1,
-		lowerLevelSnapshot: ss.lowerLevelSnapshot.addRef(),
-	}, nil
+	return nil
 }
 
 // ------------------------------------------------------

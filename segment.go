@@ -16,6 +16,10 @@ import (
 	"sort"
 )
 
+type SegmentMutator interface {
+	Mutate(operation uint64, key, val []byte) error
+}
+
 // A segment is a sequence of key-val entries or operations.  A
 // segment's kvs will be sorted by key when the segment is pushed into
 // the collection.  A segment implements the Batch interface.
@@ -148,6 +152,10 @@ func (a *segment) AllocMerge(keyFromAlloc, valFromAlloc []byte) error {
 }
 
 // ------------------------------------------------------
+
+func (a *segment) Mutate(operation uint64, key, val []byte) error {
+	return a.mutate(operation, key, val)
+}
 
 func (a *segment) mutate(operation uint64, key, val []byte) error {
 	keyStart := len(a.buf)
