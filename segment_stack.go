@@ -21,7 +21,7 @@ import (
 // entries of the same key from lower in the stack.  A segmentStack
 // implements the Snapshot interface.
 type segmentStack struct {
-	collection *collection
+	options *CollectionOptions
 
 	a []*segment
 
@@ -111,7 +111,10 @@ func (ss *segmentStack) get(key []byte, segStart int, base *segmentStack) (
 // a merged val, based on the configured merge operator.
 func (ss *segmentStack) getMerged(key, val []byte, segStart int,
 	base *segmentStack) ([]byte, error) {
-	mo := ss.collection.options.MergeOperator
+	var mo MergeOperator
+	if ss.options != nil {
+		mo = ss.options.MergeOperator
+	}
 	if mo == nil {
 		return nil, ErrMergeOperatorNil
 	}
@@ -134,7 +137,10 @@ func (ss *segmentStack) getMerged(key, val []byte, segStart int,
 // calcTargetTopLevel() heuristically computes a new top level that
 // the segmentStack should be merged to.
 func (ss *segmentStack) calcTargetTopLevel() int {
-	minMergePercentage := ss.collection.options.MinMergePercentage
+	var minMergePercentage float64
+	if ss.options != nil {
+		minMergePercentage = ss.options.MinMergePercentage
+	}
 	if minMergePercentage <= 0 {
 		minMergePercentage = DefaultCollectionOptions.MinMergePercentage
 	}
@@ -289,7 +295,7 @@ OUTER:
 	a = append(a, mergedSegment)
 
 	return &segmentStack{
-		collection:         ss.collection,
+		options:            ss.options,
 		a:                  a,
 		refs:               1,
 		lowerLevelSnapshot: ss.lowerLevelSnapshot.addRef(),
@@ -299,7 +305,7 @@ OUTER:
 // ------------------------------------------------------
 
 func (ss *segmentStack) ensureSorted(minSeg, maxSeg int) {
-	if !ss.collection.options.DeferredSort {
+	if !ss.options.DeferredSort {
 		return
 	}
 

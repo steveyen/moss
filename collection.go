@@ -230,7 +230,7 @@ func (m *collection) ExecuteBatch(bIn Batch,
 		sort.Sort(b)
 	}
 
-	stackDirtyTop := &segmentStack{collection: m, refs: 1}
+	stackDirtyTop := &segmentStack{options: &m.options, refs: 1}
 
 	// notify interested handlers that we are about to execute this batch
 	if m.options.OnEvent != nil {
@@ -362,7 +362,7 @@ func (m *collection) snapshot(skip uint32, cb func(*segmentStack)) (
 	*segmentStack, int, int, int, int) {
 	atomic.AddUint64(&m.stats.TotSnapshotInternalBeg, 1)
 
-	rv := &segmentStack{collection: m, refs: 1}
+	rv := &segmentStack{options: &m.options, refs: 1}
 
 	heightDirtyTop := 0
 	heightDirtyMid := 0
