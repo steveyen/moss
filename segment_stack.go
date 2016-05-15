@@ -232,12 +232,12 @@ func (ss *segmentStack) merge(newTopLevel int, base *segmentStack) (
 	}, nil
 }
 
-func (ss *segmentStack) mergeInto(newTopLevel int, dest SegmentMutator,
+func (ss *segmentStack) mergeInto(minSegmentLevel int, dest SegmentMutator,
 	base *segmentStack) error {
 	iter, err := ss.startIterator(nil, nil, IteratorOptions{
 		IncludeDeletions: true,
 		SkipLowerLevel:   true,
-		MinSegmentLevel:  newTopLevel,
+		MinSegmentLevel:  minSegmentLevel,
 		MaxSegmentHeight: len(ss.a),
 		base:             base,
 	})
