@@ -220,8 +220,7 @@ func (ss *segmentStack) merge(newTopLevel int, base *segmentStack) (
 		return nil, err
 	}
 
-	var a []*segment
-
+	a := make([]*segment, 0, newTopLevel+1)
 	a = append(a, ss.a[0:newTopLevel]...)
 	a = append(a, mergedSegment)
 
