@@ -241,11 +241,11 @@ func (a *segment) Less(i, j int) bool {
 
 // ------------------------------------------------------
 
-// findStartKeyInclusivePos() returns the logical entry position for
+// FindStartKeyInclusivePos() returns the logical entry position for
 // the given (inclusive) start key.  With segment keys of [b, d, f],
 // looking for 'c' will return 1.  Looking for 'd' will return 1.
 // Looking for 'g' will return 3.  Looking for 'a' will return 0.
-func (a *segment) findStartKeyInclusivePos(startKeyInclusive []byte) int {
+func (a *segment) FindStartKeyInclusivePos(startKeyInclusive []byte) int {
 	n := a.Len()
 
 	return sort.Search(n, func(pos int) bool {
@@ -262,9 +262,9 @@ func (a *segment) findStartKeyInclusivePos(startKeyInclusive []byte) int {
 	// TODO: Consider a perfectly balanced btree?
 }
 
-// getOperationKeyVal() returns the operation, key, val for a given
+// GetOperationKeyVal() returns the operation, key, val for a given
 // logical entry position in the segment.
-func (a *segment) getOperationKeyVal(pos int) (
+func (a *segment) GetOperationKeyVal(pos int) (
 	uint64, []byte, []byte) {
 	x := pos * 2
 	if x < 0 || x >= len(a.kvs) {

@@ -79,7 +79,7 @@ func (ss *segmentStack) get(key []byte, segStart int, base *segmentStack) (
 			b := ss.a[seg]
 
 			operation, k, v :=
-				b.getOperationKeyVal(b.findStartKeyInclusivePos(key))
+				b.GetOperationKeyVal(b.FindStartKeyInclusivePos(key))
 			if k != nil && bytes.Equal(k, key) {
 				if operation == OperationDel {
 					return nil, nil
@@ -267,7 +267,7 @@ OUTER:
 			segmentOps := segment.Len()
 
 			for pos := cursor.pos; pos < segmentOps; pos++ {
-				op, k, v := segment.getOperationKeyVal(pos)
+				op, k, v := segment.GetOperationKeyVal(pos)
 
 				err = dest.Mutate(op, k, v)
 				if err != nil {
