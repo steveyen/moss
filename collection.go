@@ -250,7 +250,7 @@ func (m *collection) ExecuteBatch(bIn Batch,
 		}
 
 		if m.options.DeferredSort {
-			go b.requestSort(false) // While waiting, might as well sort.
+			go b.RequestSort(false) // While waiting, might as well sort.
 		}
 
 		atomic.AddUint64(&m.stats.TotExecuteBatchWaitBeg, 1)
@@ -269,7 +269,7 @@ func (m *collection) ExecuteBatch(bIn Batch,
 		numDirtyTop = len(m.stackDirtyTop.a)
 	}
 
-	stackDirtyTop.a = make([]*segment, 0, numDirtyTop+1)
+	stackDirtyTop.a = make([]Segment, 0, numDirtyTop+1)
 
 	if m.stackDirtyTop != nil {
 		stackDirtyTop.a = append(stackDirtyTop.a, m.stackDirtyTop.a...)
@@ -389,7 +389,7 @@ func (m *collection) snapshot(skip uint32, cb func(*segmentStack)) (
 		heightClean = len(m.stackClean.a)
 	}
 
-	rv.a = make([]*segment, 0,
+	rv.a = make([]Segment, 0,
 		heightDirtyTop+heightDirtyMid+heightDirtyBase+heightClean)
 
 	if m.stackClean != nil && (skip&snapshotSkipClean == 0) {
@@ -578,10 +578,8 @@ OUTER:
 			m.Logf("collection: runMerger,"+
 				" dirtyTop prev height: %2d,"+
 				" dirtyMid height: %2d (%2d),"+
-				" dirtyMid top (%0.2f kvs cap, %0.2f buf cap) # entries: %d",
+				" dirtyMid top # entries: %d",
 				prevLenDirtyTop, lenDirtyMid, lenDirtyMid-prevLenDirtyMid,
-				float64(len(topDirtyMid.kvs))/float64(cap(topDirtyMid.kvs)),
-				float64(len(topDirtyMid.buf))/float64(cap(topDirtyMid.buf)),
 				topDirtyMid.Len())
 		}
 

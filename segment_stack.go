@@ -23,7 +23,7 @@ import (
 type segmentStack struct {
 	options *CollectionOptions
 
-	a []*segment
+	a []Segment
 
 	m sync.Mutex // Protects the fields the follow.
 
@@ -220,7 +220,7 @@ func (ss *segmentStack) merge(newTopLevel int, base *segmentStack) (
 		return nil, err
 	}
 
-	a := make([]*segment, 0, newTopLevel+1)
+	a := make([]Segment, 0, newTopLevel+1)
 	a = append(a, ss.a[0:newTopLevel]...)
 	a = append(a, mergedSegment)
 
@@ -320,12 +320,12 @@ func (ss *segmentStack) ensureSorted(minSeg, maxSeg int) {
 
 	sorted := true // Two phases allows for more concurrent sorting.
 	for seg := maxSeg; seg >= minSeg; seg-- {
-		sorted = sorted && ss.a[seg].requestSort(false)
+		sorted = sorted && ss.a[seg].RequestSort(false)
 	}
 
 	if !sorted {
 		for seg := maxSeg; seg >= minSeg; seg-- {
-			ss.a[seg].requestSort(true)
+			ss.a[seg].RequestSort(true)
 		}
 	}
 }
