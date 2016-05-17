@@ -314,7 +314,7 @@ OUTER:
 // ------------------------------------------------------
 
 func (ss *segmentStack) ensureSorted(minSeg, maxSeg int) {
-	if !ss.options.DeferredSort {
+	if ss.options == nil || !ss.options.DeferredSort {
 		return
 	}
 
