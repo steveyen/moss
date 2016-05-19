@@ -14,7 +14,6 @@ package test
 
 import (
 	"fmt"
-	"sync"
 
 	"github.com/couchbase/moss"
 
@@ -119,7 +118,7 @@ func setupFunc(ctx smat.Context) (next smat.State, err error) {
 	c := ctx.(*context)
 
 	coll, err := moss.NewCollection(moss.CollectionOptions{
-		MergeOperator: &testMergeOperatorAppend{},
+		MergeOperator: &moss.MergeOperatorStringAppend{Sep: ":"},
 	})
 	if err != nil {
 		return nil, err
@@ -348,38 +347,4 @@ func (c *context) getCurSnapshot() (moss.Snapshot, error) {
 		}
 	}
 	return c.snapshots[c.curSnapshot%len(c.snapshots)], nil
-}
-
-// ----------------------------------------------
-
-type testMergeOperatorAppend struct {
-	m          sync.Mutex
-	numFull    int
-	numPartial int
-}
-
-func (mo *testMergeOperatorAppend) Name() string {
-	return "testMergeOperatorAppend"
-}
-
-func (mo *testMergeOperatorAppend) FullMerge(key, existingValue []byte,
-	operands [][]byte) ([]byte, bool) {
-	mo.m.Lock()
-	mo.numFull++
-	mo.m.Unlock()
-
-	s := string(existingValue)
-	for _, operand := range operands {
-		s = s + ":" + string(operand)
-	}
-	return []byte(s), true
-}
-
-func (mo *testMergeOperatorAppend) PartialMerge(key,
-	leftOperand, rightOperand []byte) ([]byte, bool) {
-	mo.m.Lock()
-	mo.numPartial++
-	mo.m.Unlock()
-
-	return []byte(string(leftOperand) + ":" + string(rightOperand)), true
 }
