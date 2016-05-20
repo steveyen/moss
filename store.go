@@ -204,6 +204,9 @@ func (s *Store) Close() error {
 // Persist helps the store implement the lower-level-update func.
 func (s *Store) Persist(higher Snapshot, persistOptions StorePersistOptions) (
 	Snapshot, error) {
+	if higher == nil {
+		return s.Snapshot()
+	}
 	ss, ok := higher.(*segmentStack)
 	if !ok {
 		return nil, fmt.Errorf("store: can only persist segmentStack")
@@ -248,12 +251,14 @@ func (s *Store) persistSegmentStack(ss *segmentStack) (Snapshot, error) {
 	}
 
 	s.m.Lock()
-	if s.footer != nil {
-		s.footer.fref.DecRef()
-	}
+	footerPrev := s.footer
 	s.footer = footer
 	s.footer.fref.AddRef() // One ref-count held by store.
 	s.m.Unlock()
+
+	if footerPrev != nil {
+		footerPrev.fref.DecRef()
+	}
 
 	return footer, nil // The other ref-count returned to caller.
 }
