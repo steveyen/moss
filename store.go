@@ -215,7 +215,7 @@ func (s *Store) persistSegmentStack(ss *segmentStack) (Snapshot, error) {
 	ss.addRef()
 	defer ss.decRef()
 
-	fref, file, err := s.createOrReuseFile()
+	fref, file, err := s.startOrReuseFile()
 	if err != nil {
 		return nil, err
 	}
@@ -260,9 +260,9 @@ func (s *Store) persistSegmentStack(ss *segmentStack) (Snapshot, error) {
 
 // --------------------------------------------------------
 
-// createOrReuseFile either creates a new file or reuses the file from
+// startOrReuseFile either creates a new file or reuses the file from
 // the last/current footer.
-func (s *Store) createOrReuseFile() (fref *FileRef, file File, err error) {
+func (s *Store) startOrReuseFile() (fref *FileRef, file File, err error) {
 	s.m.Lock()
 	defer s.m.Unlock()
 
