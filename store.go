@@ -236,7 +236,7 @@ func (s *Store) persistSegmentStack(ss *segmentStack) (Snapshot, error) {
 		segmentLocs = append(segmentLocs, segmentLoc)
 	}
 
-	footer, err := initFooter(&Footer{SegmentLocs: segmentLocs, fref: fref}, file)
+	footer, err := loadFooterSegments(&Footer{SegmentLocs: segmentLocs, fref: fref}, file)
 	if err != nil {
 		fref.DecRef()
 		return nil, err
@@ -477,7 +477,7 @@ func ScanFooter(file File, pos int64) (*Footer, error) {
 				if err := json.Unmarshal(data[2*lenMagicBeg+4+4:], m); err != nil {
 					return nil, err
 				}
-				return initFooter(m, file)
+				return loadFooterSegments(m, file)
 			} // Else, perhaps file was unlucky in having STORE_MAGIC_END's.
 		} // Else, perhaps a persist file was stored in a file.
 
@@ -487,16 +487,20 @@ func ScanFooter(file File, pos int64) (*Footer, error) {
 
 // --------------------------------------------------------
 
-// initFooter initializes the Footer instance.
-func initFooter(f *Footer, file File) (*Footer, error) {
+// loadFooterSegments mmap()'s the segments that the footer points at.
+func loadFooterSegments(f *Footer, file File) (*Footer, error) {
+	if f.ss.a != nil {
+		return f, nil
+	}
+
 	osFile := ToOsFile(file)
 	if osFile == nil {
-		return nil, fmt.Errorf("store: initFooter could not convert to os.File")
+		return nil, fmt.Errorf("store: loadFooterSegments convert to os.File error")
 	}
 
 	mm, err := mmap.Map(osFile, mmap.RDONLY, 0)
 	if err != nil {
-		return nil, fmt.Errorf("store: initFooter mmap.Map(), err: %v", err)
+		return nil, fmt.Errorf("store: loadFooterSegments mmap.Map(), err: %v", err)
 	}
 
 	f.fref.OnClose(func() { mm.Unmap() })
