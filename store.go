@@ -63,7 +63,7 @@ type Store struct {
 
 type StoreOptions struct {
 	// OpenFile allows apps to optionally provide their own file
-	// opening implementation.  Defaults to os.OpenFile().
+	// opening implementation.  When nil, os.OpenFile() is used.
 	OpenFile OpenFile `json:"-"`
 
 	// Log is a callback invoked when store needs to log a debug
@@ -120,7 +120,7 @@ func OpenStore(dir string, options StoreOptions) (*Store, error) {
 	var maxFNameSeq int64
 
 	var fnames []string
-	for _, fileInfo := range fileInfos {
+	for _, fileInfo := range fileInfos { // Find candidate file names.
 		fname := fileInfo.Name()
 		if strings.HasPrefix(fname, STORE_PREFIX) &&
 			strings.HasSuffix(fname, STORE_SUFFIX) {
@@ -141,7 +141,12 @@ func OpenStore(dir string, options StoreOptions) (*Store, error) {
 	}
 
 	if len(fnames) <= 0 {
-		return &Store{dir: dir, options: &options, nextFNameSeq: 1}, nil
+		return &Store{
+			dir:          dir,
+			options:      &options,
+			footer:       &Footer{},
+			nextFNameSeq: 1,
+		}, nil
 	}
 
 	sort.Strings(fnames)
@@ -173,7 +178,7 @@ func (s *Store) Dir() string {
 }
 
 func (s *Store) Options() StoreOptions {
-	return *s.options
+	return *s.options // Copy.
 }
 
 func (s *Store) Snapshot() (Snapshot, error) {
@@ -181,8 +186,6 @@ func (s *Store) Snapshot() (Snapshot, error) {
 	footer := s.footer
 	if footer != nil {
 		footer.fref.AddRef()
-	} else {
-		footer = &Footer{}
 	}
 	s.m.Unlock()
 	return footer, nil
@@ -193,11 +196,7 @@ func (s *Store) Close() error {
 	footer := s.footer
 	s.footer = nil
 	s.m.Unlock()
-
-	if footer != nil {
-		return footer.Close()
-	}
-	return nil
+	return footer.Close()
 }
 
 // --------------------------------------------------------
@@ -267,7 +266,7 @@ func (s *Store) createOrReuseFile() (fref *FileRef, file File, err error) {
 	s.m.Lock()
 	defer s.m.Unlock()
 
-	if s.footer != nil {
+	if s.footer != nil && s.footer.fref != nil {
 		return s.footer.fref, s.footer.fref.AddRef(), nil
 	}
 
@@ -552,13 +551,12 @@ func (f *Footer) Get(key []byte, readOptions ReadOptions) ([]byte, error) {
 // Iterator.Current() will either provide the first entry in the
 // range or ErrIteratorDone.
 //
-// A startKeyInclusive of nil means the logical "bottom-most"
-// possible key and an endKeyExclusive of nil means the logical
-// "top-most" possible key.
-func (f *Footer) StartIterator(startKeyInclusive, endKeyExclusive []byte,
+// A startKeyIncl of nil means the logical "bottom-most" possible key
+// and an endKeyExcl of nil means the logical "top-most" possible key.
+func (f *Footer) StartIterator(startKeyIncl, endKeyExcl []byte,
 	iteratorOptions IteratorOptions) (Iterator, error) {
 	f.fref.AddRef()
-	iter, err := f.ss.StartIterator(startKeyInclusive, endKeyExclusive, iteratorOptions)
+	iter, err := f.ss.StartIterator(startKeyIncl, endKeyExcl, iteratorOptions)
 	if err != nil {
 		f.fref.DecRef()
 		return nil, err
@@ -568,13 +566,13 @@ func (f *Footer) StartIterator(startKeyInclusive, endKeyExclusive []byte,
 
 // --------------------------------------------------------
 
-// ParseFNameSeq parses a file name like "data-0000123.moss" into 123.
+// ParseFNameSeq parses a file name like "data-000123.moss" into 123.
 func ParseFNameSeq(fname string) (int64, error) {
 	seqStr := fname[len(STORE_PREFIX) : len(fname)-len(STORE_SUFFIX)]
 	return strconv.ParseInt(seqStr, 10, 64)
 }
 
-// FormatFName returns a file name like "data-0000123.moss" given a seq of 123.
+// FormatFName returns a file name like "data-000123.moss" given a seq of 123.
 func FormatFName(seq int64) string {
 	return fmt.Sprintf("%s%016d%s", STORE_PREFIX, seq, STORE_SUFFIX)
 }
