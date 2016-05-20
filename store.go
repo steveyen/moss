@@ -224,7 +224,6 @@ func (s *Store) persistSegmentStack(ss *segmentStack) (Snapshot, error) {
 	}
 
 	// TODO: Pre-allocate file space up front?
-	// TODO: Multiple, concurrent segment persisters?
 
 	ss.ensureSorted(0, len(ss.a)-1)
 
@@ -317,6 +316,13 @@ func (s *Store) persistHeader(file File) error {
 
 // --------------------------------------------------------
 
+type ioResult struct {
+	kind string // Kind of io attempted.
+	want int    // Num bytes expected to be written or read.
+	got  int    // Num bytes actually written or read.
+	err  error
+}
+
 func (s *Store) persistSegment(file File, segIn Segment) (rv SegmentLoc, err error) {
 	seg, ok := segIn.(*segment)
 	if !ok {
@@ -338,28 +344,38 @@ func (s *Store) persistSegment(file File, segIn Segment) (rv SegmentLoc, err err
 	kvsBufSliceHeader.Cap = kvsSliceHeader.Cap * 8
 
 	kvsPos := pageAlign(pos)
-	kvsWritten, err := file.WriteAt(kvsBuf, kvsPos)
-	if err != nil {
-		return rv, err
-	}
-	if kvsWritten != len(kvsBuf) {
-		return rv, fmt.Errorf("store: persistSegment error writing all kvs")
-	}
+	bufPos := pageAlign(kvsPos + int64(len(kvsBuf)))
 
-	bufPos := pageAlign(kvsPos + int64(kvsWritten))
-	bufWritten, err := file.WriteAt(seg.buf, bufPos)
-	if err != nil {
-		return rv, err
-	}
-	if bufWritten != len(seg.buf) {
-		return rv, fmt.Errorf("store: persistSegment error writing all buf")
+	ioCh := make(chan ioResult)
+
+	go func() {
+		kvsWritten, err := file.WriteAt(kvsBuf, kvsPos)
+		ioCh <- ioResult{kind: "kvs", want: len(kvsBuf), got: kvsWritten, err: err}
+	}()
+
+	go func() {
+		bufWritten, err := file.WriteAt(seg.buf, bufPos)
+		ioCh <- ioResult{kind: "buf", want: len(seg.buf), got: bufWritten, err: err}
+	}()
+
+	resMap := map[string]ioResult{}
+	for len(resMap) < 2 {
+		res := <-ioCh
+		if res.err != nil {
+			return rv, res.err
+		}
+		if res.want != res.got {
+			return rv, fmt.Errorf("store: persistSegment error writing,"+
+				" res: %+v, err: %v", res, res.err)
+		}
+		resMap[res.kind] = res
 	}
 
 	return SegmentLoc{
 		KvsOffset:  uint64(kvsPos),
-		KvsBytes:   uint64(kvsWritten),
+		KvsBytes:   uint64(resMap["kvs"].got),
 		BufOffset:  uint64(bufPos),
-		BufBytes:   uint64(bufWritten),
+		BufBytes:   uint64(resMap["buf"].got),
 		TotOpsSet:  seg.totOperationSet,
 		TotOpsDel:  seg.totOperationDel,
 		TotKeyByte: seg.totKeyByte,
