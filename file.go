@@ -38,6 +38,8 @@ type FileRef struct {
 	refs int
 }
 
+// --------------------------------------------------------
+
 // OnClose registers event callback func's that are invoked before the
 // file is closed.
 func (r *FileRef) OnClose(cb func()) {
@@ -86,6 +88,8 @@ func (r *FileRef) Close() error {
 	return r.DecRef()
 }
 
+// --------------------------------------------------------
+
 // OsFile interface let's one convert from a File to an os.File.
 type OsFile interface {
 	OsFile() *os.File
@@ -100,4 +104,84 @@ func ToOsFile(f File) *os.File {
 		return osFile2.OsFile()
 	}
 	return nil
+}
+
+// --------------------------------------------------------
+
+func NewBufferedSectionWriter(w io.WriterAt, begPos, maxBytes int64,
+	bufSize int) *bufferedSectionWriter {
+	return &bufferedSectionWriter{
+		w:   w,
+		beg: begPos,
+		cur: begPos,
+		max: maxBytes,
+		buf: make([]byte, bufSize),
+	}
+}
+
+type bufferedSectionWriter struct {
+	err error
+	w   io.WriterAt
+	beg int64 // Start position where we started writing in file.
+	cur int64 // Current write-at position in file.
+	max int64 // When > 0, max number of bytes we can write.
+	buf []byte
+	n   int
+}
+
+func (b *bufferedSectionWriter) Offset() int64 { return b.cur + int64(b.n) }
+
+func (b *bufferedSectionWriter) Available() int { return len(b.buf) - b.n }
+
+func (b *bufferedSectionWriter) Write(p []byte) (nn int, err error) {
+	if b.max >= 0 && b.cur-b.beg+int64(b.n+len(p)) > b.max {
+		return 0, io.ErrShortBuffer // Would go over b.max.
+	}
+	for len(p) > b.Available() && b.err == nil {
+		var n int
+		if b.n <= 0 {
+			// Avoid copy by direct write of large p when empty buffer.
+			n, b.err = b.w.WriteAt(p, b.cur)
+			b.cur += int64(n)
+		} else {
+			n = copy(b.buf[b.n:], p)
+			b.n += n
+			b.err = b.Flush()
+		}
+		nn += n
+		p = p[n:]
+	}
+	if b.err != nil {
+		return nn, b.err
+	}
+	n := copy(b.buf[b.n:], p)
+	b.n += n
+	nn += n
+	return nn, nil
+}
+
+func (b *bufferedSectionWriter) Flush() error {
+	if b.err != nil {
+		return b.err
+	}
+	if b.n <= 0 {
+		return nil
+	}
+	if b.max >= 0 && b.cur-b.beg+int64(b.n) > b.max {
+		return io.ErrShortBuffer // Would go over b.max.
+	}
+	n, err := b.w.WriteAt(b.buf[0:b.n], b.cur)
+	if err != nil {
+		b.err = err
+		return err
+	}
+	if n > 0 {
+		if n < b.n {
+			copy(b.buf[0:b.n-n], b.buf[n:b.n])
+			err = io.ErrShortWrite
+		}
+		b.n -= n
+		b.cur += int64(n)
+	}
+	return err
 }

@@ -30,8 +30,13 @@ import (
 	"github.com/edsrzf/mmap-go"
 )
 
-var STORE_PREFIX = "data-"
-var STORE_SUFFIX = ".moss"
+// TODO: Handle endian'ness properly.
+// TODO: Better version parsers / checkers / handling.
+
+// --------------------------------------------------------
+
+var STORE_PREFIX = "data-" // File name prefix.
+var STORE_SUFFIX = ".moss" // File name suffix.
 
 var STORE_ENDIAN = binary.LittleEndian
 var STORE_PAGE_SIZE = 4096
@@ -61,7 +66,10 @@ type Store struct {
 	nextFNameSeq int64
 }
 
+// StoreOptions are provided to OpenStore().
 type StoreOptions struct {
+	// CollectionOptions should be the same as used with
+	// NewCollection().
 	CollectionOptions CollectionOptions
 
 	// OpenFile allows apps to optionally provide their own file
@@ -73,10 +81,15 @@ type StoreOptions struct {
 	Log func(format string, a ...interface{}) `json:"-"`
 }
 
+// StorePersistOptions are provided to Store.Persist().
 type StorePersistOptions struct {
+	// CompactionConcern controls whether compaction is allowed or
+	// forced as part of persistence.
+	CompactionConcern CompactionConcern
 }
 
-// Header represents the JSON stored at the head of a file.
+// Header represents the JSON stored at the head of a file, where the
+// file header bytes should be less than STORE_PAGE_SIZE length.
 type Header struct {
 	Version         uint32 // The file format / STORE_VERSION.
 	CreatedAt       string
@@ -184,6 +197,10 @@ func (s *Store) Options() StoreOptions {
 }
 
 func (s *Store) Snapshot() (Snapshot, error) {
+	return s.snapshot()
+}
+
+func (s *Store) snapshot() (*Footer, error) {
 	s.m.Lock()
 	footer := s.footer
 	if footer != nil {
@@ -203,9 +220,19 @@ func (s *Store) Close() error {
 
 // --------------------------------------------------------
 
-// Persist helps the store implement the lower-level-update func.
+// Persist helps the store implement the lower-level-update func.  The
+// higher snapshot may be nil.
 func (s *Store) Persist(higher Snapshot, persistOptions StorePersistOptions) (
 	Snapshot, error) {
+	wasCompacted, err := s.compactMaybe(higher, persistOptions)
+	if err != nil {
+		return nil, err
+	}
+	if wasCompacted {
+		return s.Snapshot()
+	}
+
+	// If we weren't compacted, perform a normal persist operation.
 	if higher == nil {
 		return s.Snapshot()
 	}
@@ -277,11 +304,12 @@ func (s *Store) startOrReuseFile() (fref *FileRef, file File, err error) {
 		return s.footer.fref, s.footer.fref.AddRef(), nil
 	}
 
-	fname := FormatFName(s.nextFNameSeq)
-	s.nextFNameSeq++
+	return s.startFileLOCKED()
+}
 
-	if file, err = s.options.OpenFile(path.Join(s.dir, fname),
-		os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600); err != nil {
+func (s *Store) startFileLOCKED() (*FileRef, File, error) {
+	fname, file, err := s.createNextFileLOCKED()
+	if err != nil {
 		return nil, nil, err
 	}
 
@@ -291,8 +319,23 @@ func (s *Store) startOrReuseFile() (fref *FileRef, file File, err error) {
 		return nil, nil, err
 	}
 
-	return &FileRef{file: file, refs: 1}, file, err
+	return &FileRef{file: file, refs: 1}, file, nil
 }
+
+func (s *Store) createNextFileLOCKED() (string, File, error) {
+	fname := FormatFName(s.nextFNameSeq)
+	s.nextFNameSeq++
+
+	file, err := s.options.OpenFile(path.Join(s.dir, fname),
+		os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
+	if err != nil {
+		return "", nil, err
+	}
+
+	return fname, file, nil
+}
+
+// --------------------------------------------------------
 
 func (s *Store) persistHeader(file File) error {
 	buf, err := json.Marshal(Header{
@@ -305,7 +348,7 @@ func (s *Store) persistHeader(file File) error {
 	}
 
 	str := "moss-data-store:\n" + string(buf) + "\n"
-	str = str + strings.Repeat(" ", STORE_PAGE_SIZE-len(str))
+	str = str + strings.Repeat("\n", STORE_PAGE_SIZE-len(str))
 	n, err := file.WriteAt([]byte(str), 0)
 	if err != nil {
 		return err
@@ -600,12 +643,12 @@ func (f *Footer) StartIterator(startKeyIncl, endKeyExcl []byte,
 // ParseFNameSeq parses a file name like "data-000123.moss" into 123.
 func ParseFNameSeq(fname string) (int64, error) {
 	seqStr := fname[len(STORE_PREFIX) : len(fname)-len(STORE_SUFFIX)]
-	return strconv.ParseInt(seqStr, 10, 64)
+	return strconv.ParseInt(seqStr, 16, 64)
 }
 
 // FormatFName returns a file name like "data-000123.moss" given a seq of 123.
 func FormatFName(seq int64) string {
-	return fmt.Sprintf("%s%016d%s", STORE_PREFIX, seq, STORE_SUFFIX)
+	return fmt.Sprintf("%s%016x%s", STORE_PREFIX, seq, STORE_SUFFIX)
 }
 
 // --------------------------------------------------------

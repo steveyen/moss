@@ -40,9 +40,9 @@ func TestPageAlign(t *testing.T) {
 }
 
 func TestParseFNameSeq(t *testing.T) {
-	s, err := ParseFNameSeq("data-00000123.moss")
-	if err != nil || s != int64(123) {
-		t.Errorf("expected 123")
+	s, err := ParseFNameSeq("data-00000fe.moss")
+	if err != nil || s != int64(254) {
+		t.Errorf("expected 254, got: %v", s)
 	}
 
 	s, err = ParseFNameSeq("data-00000.moss")
@@ -50,12 +50,14 @@ func TestParseFNameSeq(t *testing.T) {
 		t.Errorf("expected 0")
 	}
 
-	if FormatFName(0) != "data-0000000000000000.moss" {
-		t.Errorf("expected lots of 0's")
+	ss := FormatFName(0)
+	if ss != "data-0000000000000000.moss" {
+		t.Errorf("expected lots of 0's, got: %s", ss)
 	}
 
-	if FormatFName(123) != "data-0000000000000123.moss" {
-		t.Errorf("expected lots of 0's and 123")
+	ss = FormatFName(256)
+	if ss != "data-0000000000000100.moss" {
+		t.Errorf("expected lots of 0's and 100, got: %s", ss)
 	}
 }
 

@@ -199,9 +199,7 @@ func (a *segment) mutateEx(operation uint64,
 		keyStart = 0
 	}
 
-	opKlVl := (maskOperation & operation) |
-		(maskKeyLength & (uint64(keyLength) << 32)) |
-		(maskValLength & (uint64(valLength)))
+	opKlVl := encodeOpKeyLenValLen(operation, keyLength, valLength)
 
 	a.kvs = append(a.kvs, opKlVl, uint64(keyStart))
 
@@ -219,6 +217,12 @@ func (a *segment) mutateEx(operation uint64,
 	a.totValByte += uint64(valLength)
 
 	return nil
+}
+
+func encodeOpKeyLenValLen(operation uint64, keyLen, valLen int) uint64 {
+	return (maskOperation & operation) |
+		(maskKeyLength & (uint64(keyLen) << 32)) |
+		(maskValLength & (uint64(valLen)))
 }
 
 // ------------------------------------------------------
