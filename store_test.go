@@ -280,6 +280,14 @@ func TestSimpleStore(t *testing.T) {
 }
 
 func TestStoreOps(t *testing.T) {
+	testStoreOps(t, StorePersistOptions{})
+}
+
+func TestStoreOpsCompactionForce(t *testing.T) {
+	testStoreOps(t, StorePersistOptions{CompactionConcern: CompactionForce})
+}
+
+func testStoreOps(t *testing.T, spo StorePersistOptions) {
 	tmpDir, _ := ioutil.TempDir("", "mossStore")
 	defer os.RemoveAll(tmpDir)
 
@@ -300,7 +308,7 @@ func TestStoreOps(t *testing.T) {
 		MergeOperator:  &MergeOperatorStringAppend{Sep: ":"},
 		LowerLevelInit: ssInit,
 		LowerLevelUpdate: func(higher Snapshot) (Snapshot, error) {
-			return store.Persist(higher, StorePersistOptions{})
+			return store.Persist(higher, spo)
 		},
 		OnEvent: func(event Event) {
 			mu.Lock()
