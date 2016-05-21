@@ -62,6 +62,8 @@ type Store struct {
 }
 
 type StoreOptions struct {
+	CollectionOptions CollectionOptions
+
 	// OpenFile allows apps to optionally provide their own file
 	// opening implementation.  When nil, os.OpenFile() is used.
 	OpenFile OpenFile `json:"-"`
@@ -156,7 +158,7 @@ func OpenStore(dir string, options StoreOptions) (*Store, error) {
 			continue
 		}
 
-		footer, err := ReadFooter(file) // The footer owns the file on success.
+		footer, err := ReadFooter(&options, file) // The footer owns the file on success.
 		if err != nil {
 			file.Close()
 			continue
@@ -238,7 +240,8 @@ func (s *Store) persistSegmentStack(ss *segmentStack) (Snapshot, error) {
 		segmentLocs = append(segmentLocs, segmentLoc)
 	}
 
-	footer, err := loadFooterSegments(&Footer{SegmentLocs: segmentLocs, fref: fref}, file)
+	footer, err := loadFooterSegments(s.options,
+		&Footer{SegmentLocs: segmentLocs, fref: fref}, file)
 	if err != nil {
 		fref.DecRef()
 		return nil, err
@@ -371,6 +374,8 @@ func (s *Store) persistSegment(file File, segIn Segment) (rv SegmentLoc, err err
 		resMap[res.kind] = res
 	}
 
+	close(ioCh)
+
 	return SegmentLoc{
 		KvsOffset:  uint64(kvsPos),
 		KvsBytes:   uint64(resMap["kvs"].got),
@@ -424,16 +429,16 @@ func (s *Store) persistFooter(file File, footer *Footer) error {
 // --------------------------------------------------------
 
 // ReadFooter reads the Footer from a file.
-func ReadFooter(file File) (*Footer, error) {
+func ReadFooter(options *StoreOptions, file File) (*Footer, error) {
 	finfo, err := file.Stat()
 	if err != nil {
 		return nil, err
 	}
-	return ScanFooter(file, finfo.Size())
+	return ScanFooter(options, file, finfo.Size())
 }
 
 // ScanFooter scans a file backwards for a valid Footer.
-func ScanFooter(file File, pos int64) (*Footer, error) {
+func ScanFooter(options *StoreOptions, file File, pos int64) (*Footer, error) {
 	footerEnd := make([]byte, footerEndLen)
 	for {
 		for { // Scan backwards for STORE_MAGIC_END, which might be a potential footer.
@@ -498,7 +503,7 @@ func ScanFooter(file File, pos int64) (*Footer, error) {
 				if err := json.Unmarshal(data[2*lenMagicBeg+4+4:], m); err != nil {
 					return nil, err
 				}
-				return loadFooterSegments(m, file)
+				return loadFooterSegments(options, m, file)
 			} // Else, perhaps file was unlucky in having STORE_MAGIC_END's.
 		} // Else, perhaps a persist file was stored in a file.
 
@@ -509,7 +514,7 @@ func ScanFooter(file File, pos int64) (*Footer, error) {
 // --------------------------------------------------------
 
 // loadFooterSegments mmap()'s the segments that the footer points at.
-func loadFooterSegments(f *Footer, file File) (*Footer, error) {
+func loadFooterSegments(options *StoreOptions, f *Footer, file File) (*Footer, error) {
 	if f.ss.a != nil {
 		return f, nil
 	}
@@ -550,6 +555,7 @@ func loadFooterSegments(f *Footer, file File) (*Footer, error) {
 		}
 	}
 	f.ss.refs = 1
+	f.ss.options = &options.CollectionOptions
 
 	return f, nil
 }
