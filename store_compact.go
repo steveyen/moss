@@ -16,7 +16,6 @@ import (
 	"os"
 	"path"
 	"reflect"
-	"time"
 	"unsafe"
 )
 
@@ -67,12 +66,12 @@ func (s *Store) compactMaybe(higher Snapshot, persistOptions StorePersistOptions
 	}
 
 	if footer.fref != nil {
-		footer.fref.OnClose(func() {
-			finfo, err := footer.fref.file.Stat()
-			if err == nil && len(finfo.Name()) > 0 {
-				go removeFileAfter(path.Join(s.dir, finfo.Name()), 30*time.Second)
-			}
-		})
+		finfo, err := footer.fref.file.Stat()
+		if err == nil && len(finfo.Name()) > 0 {
+			footer.fref.OnAfterClose(func() {
+				os.Remove(path.Join(s.dir, finfo.Name()))
+			})
+		}
 	}
 
 	return true, nil
@@ -219,11 +218,4 @@ func (cw *compactWriter) Mutate(operation uint64, key, val []byte) error {
 	cw.totValByte += uint64(valLen)
 
 	return nil
-}
-
-// --------------------------------------------------------
-
-func removeFileAfter(filePath string, duration time.Duration) {
-	<-time.After(duration)
-	os.Remove(filePath) // TODO: Error handling.
 }

@@ -34,17 +34,27 @@ type OpenFile func(name string, flag int, perm os.FileMode) (File, error)
 type FileRef struct {
 	file File
 	m    sync.Mutex // Protects the fields that follow.
-	cbs  []func()   // Optional callbacks invoked before final close.
 	refs int
+
+	beforeCloseCallbacks []func() // Optional callbacks invoked before final close.
+	afterCloseCallbacks  []func() // Optional callbacks invoked after final close.
 }
 
 // --------------------------------------------------------
 
-// OnClose registers event callback func's that are invoked before the
+// OnBeforeClose registers event callback func's that are invoked before the
 // file is closed.
-func (r *FileRef) OnClose(cb func()) {
+func (r *FileRef) OnBeforeClose(cb func()) {
 	r.m.Lock()
-	r.cbs = append(r.cbs, cb)
+	r.beforeCloseCallbacks = append(r.beforeCloseCallbacks, cb)
+	r.m.Unlock()
+}
+
+// OnAfterClose registers event callback func's that are invoked after the
+// file is closed.
+func (r *FileRef) OnAfterClose(cb func()) {
+	r.m.Lock()
+	r.afterCloseCallbacks = append(r.afterCloseCallbacks, cb)
 	r.m.Unlock()
 }
 
@@ -70,15 +80,24 @@ func (r *FileRef) DecRef() (err error) {
 	}
 
 	r.m.Lock()
+
 	r.refs--
 	if r.refs <= 0 {
-		for _, cb := range r.cbs {
+		for _, cb := range r.beforeCloseCallbacks {
 			cb()
 		}
-		r.cbs = nil
+		r.beforeCloseCallbacks = nil
+
 		err = r.file.Close()
+
+		for _, cb := range r.afterCloseCallbacks {
+			cb()
+		}
+		r.afterCloseCallbacks = nil
+
 		r.file = nil
 	}
+
 	r.m.Unlock()
 
 	return err

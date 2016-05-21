@@ -572,7 +572,7 @@ func loadFooterSegments(options *StoreOptions, f *Footer, file File) (*Footer, e
 		return nil, fmt.Errorf("store: loadFooterSegments mmap.Map(), err: %v", err)
 	}
 
-	f.fref.OnClose(func() { mm.Unmap() })
+	f.fref.OnBeforeClose(func() { mm.Unmap() })
 
 	f.ss.a = make([]Segment, len(f.SegmentLocs))
 	for i := range f.SegmentLocs {
