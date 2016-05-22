@@ -12,9 +12,12 @@
 package moss
 
 import (
+	"fmt"
 	"io/ioutil"
 	"os"
 	"path"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 
@@ -345,5 +348,245 @@ func testStoreOps(t *testing.T, spo StorePersistOptions) {
 	stats, err := m.Stats()
 	if err != nil || stats.TotPersisterLowerLevelUpdateEnd <= 0 {
 		t.Errorf("expected some persistence")
+	}
+}
+
+func TestStoreCompaction(t *testing.T) {
+	tmpDir, _ := ioutil.TempDir("", "mossStore")
+	defer os.RemoveAll(tmpDir)
+
+	var mu sync.Mutex
+	counts := map[EventKind]int{}
+
+	co := CollectionOptions{
+		MergeOperator: &MergeOperatorStringAppend{Sep: ":"},
+		OnEvent: func(event Event) {
+			mu.Lock()
+			counts[event.Kind]++
+			mu.Unlock()
+		},
+	}
+
+	store, err := OpenStore(tmpDir, StoreOptions{
+		CollectionOptions: co,
+	})
+	if err != nil || store == nil {
+		t.Errorf("expected open empty store to work")
+	}
+
+	ssInit, err := store.Snapshot()
+	if err != nil || ssInit == nil {
+		t.Errorf("expected ssInit")
+	}
+
+	persistCh := make(chan struct{})
+
+	spo := StorePersistOptions{CompactionConcern: CompactionForce}
+
+	co2 := co
+	co2.LowerLevelInit = ssInit
+	co2.LowerLevelUpdate = func(higher Snapshot) (Snapshot, error) {
+		ss, err := store.Persist(higher, spo)
+		persistCh <- struct{}{}
+		return ss, err
+	}
+
+	m, err := NewCollection(co2)
+	if err != nil || m == nil {
+		t.Errorf("expected moss")
+	}
+
+	m.Start()
+
+	set1000 := true
+	delTens := true
+	updateOdds := true
+
+	numBatches := 0
+	for j := 0; j < 10; j++ {
+		if set1000 {
+			b, _ := m.NewBatch(0, 0)
+			for i := 0; i < 1000; i++ {
+				x := []byte(fmt.Sprintf("%d", i))
+				b.Set(x, x)
+			}
+			err = m.ExecuteBatch(b, WriteOptions{})
+			if err != nil {
+				t.Errorf("expected exec batch to work")
+			}
+			b.Close()
+
+			<-persistCh
+			numBatches++
+		}
+
+		if delTens {
+			b, _ := m.NewBatch(0, 0)
+			for i := 0; i < 1000; i += 10 {
+				x := []byte(fmt.Sprintf("%d", i))
+				b.Del(x)
+			}
+			err = m.ExecuteBatch(b, WriteOptions{})
+			if err != nil {
+				t.Errorf("expected exec batch to work")
+			}
+			b.Close()
+
+			<-persistCh
+			numBatches++
+		}
+
+		if updateOdds {
+			b, _ := m.NewBatch(0, 0)
+			for i := 1; i < 1000; i += 2 {
+				x := []byte(fmt.Sprintf("%d", i))
+				b.Set(x, []byte(fmt.Sprintf("odd-%d", i)))
+			}
+			err = m.ExecuteBatch(b, WriteOptions{})
+			if err != nil {
+				t.Errorf("expected exec batch to work")
+			}
+			b.Close()
+
+			<-persistCh
+			numBatches++
+		}
+	}
+
+	m.Close()
+
+	store.Close()
+
+	// --------------------
+
+	fileInfos, err := ioutil.ReadDir(tmpDir)
+	if err != nil {
+		t.Errorf("expected read dir to work")
+	}
+	if len(fileInfos) != 1 {
+		t.Errorf("expected only 1 file")
+	}
+
+	seq, err := ParseFNameSeq(fileInfos[0].Name())
+	if err != nil {
+		t.Errorf("expected parse seq to work")
+	}
+	if seq <= 0 {
+		t.Errorf("expected larger seq")
+	}
+	if seq != int64(numBatches) {
+		t.Errorf("expected seq: %s to equal numBatches: %s", seq, numBatches)
+	}
+
+	// --------------------
+
+	store2, err := OpenStore(tmpDir, StoreOptions{
+		CollectionOptions: co,
+	})
+	if err != nil || store2 == nil {
+		t.Errorf("expected reopen store to work")
+	}
+
+	// --------------------
+
+	store2.m.Lock()
+
+	if store2.nextFNameSeq != seq+1 {
+		t.Errorf("expected nextFNameseq to be seq+1")
+	}
+	if store2.footer == nil {
+		t.Errorf("expected nextFNameseq to be seq+1")
+	}
+	if store2.footer.fref.refs != 1 {
+		t.Errorf("expected store2.footer.fref.refs == 1")
+	}
+	if len(store2.footer.SegmentLocs) != 1 {
+		t.Errorf("expected store2.footer.SegmentLocs")
+	}
+	if len(store2.footer.ss.a) != 1 {
+		t.Errorf("expected store2.footer.ss.a")
+	}
+	if store2.footer.ss.lowerLevelSnapshot != nil {
+		t.Errorf("expected segStack2.lowerLevelSnapshot nil")
+	}
+
+	seg, ok := store2.footer.ss.a[0].(*segment)
+	if !ok {
+		t.Errorf("expected segment")
+	}
+	if seg.kvs == nil || len(seg.kvs) <= 0 {
+		t.Errorf("expected seg.kvs")
+	}
+	if seg.buf == nil || len(seg.buf) <= 0 {
+		t.Errorf("expected seg.buf")
+	}
+	for pos := 0; pos < seg.Len(); pos++ {
+		x := pos * 2
+		if x < 0 || x >= len(seg.kvs) {
+			t.Errorf("pos to x error")
+		}
+
+		opklvl := seg.kvs[x]
+
+		operation, keyLen, valLen := decodeOpKeyLenValLen(opklvl)
+		if operation == 0 {
+			t.Errorf("should have some nonzero op")
+		}
+
+		kstart := int(seg.kvs[x+1])
+		vstart := kstart + keyLen
+
+		if kstart+keyLen > len(seg.buf) {
+			t.Errorf("key larger than buf, pos: %d, kstart: %d, keyLen: %d, len(buf): %d, op: %x",
+				pos, kstart, keyLen, len(seg.buf), operation)
+		}
+		if vstart+valLen > len(seg.buf) {
+			t.Errorf("val larger than buf, pos: %d, vstart: %d, valLen: %d, len(buf): %d, op: %x",
+				pos, vstart, valLen, len(seg.buf), operation)
+		}
+	}
+
+	store2.m.Unlock()
+
+	// --------------------
+
+	ss2, err := store2.Snapshot()
+	if err != nil || ss2 == nil {
+		t.Errorf("expected snapshot 2, no err")
+	}
+
+	iter2, err := ss2.StartIterator(nil, nil, IteratorOptions{})
+	if err != nil || iter2 == nil {
+		t.Errorf("expected ss2 iter to start")
+	}
+
+	for {
+		k, v, err := iter2.Current()
+		if err == ErrIteratorDone {
+			break
+		}
+		ks := string(k)
+		vs := string(v)
+
+		i, err := strconv.Atoi(ks)
+		if err != nil {
+			t.Errorf("expected all int keys, got: %s", ks)
+		}
+		if i <= 0 || i >= 1000 {
+			t.Errorf("expected i within range")
+		}
+		if delTens && i%10 == 0 {
+			t.Errorf("expected no multiples of 10")
+		}
+		if updateOdds && i%2 == 1 {
+			if !strings.HasPrefix(vs, "odd-") {
+				t.Errorf("expected odds to have odd prefix")
+			}
+		}
+
+		err = iter2.Next()
+		if err == ErrIteratorDone {
+			break
+		}
 	}
 }

@@ -148,12 +148,19 @@ type bufferedSectionWriter struct {
 	n   int
 }
 
+// Offset returns the byte offset into the file where the
+// bufferedSectionWriter is currently logically positioned.
 func (b *bufferedSectionWriter) Offset() int64 { return b.cur + int64(b.n) }
 
+// Available returns the bytes remaining that can be logically written
+// to memory without incurring an actual write or flush to the file.
 func (b *bufferedSectionWriter) Available() int { return len(b.buf) - b.n }
 
+// Written returns the logical number of bytes written by this bufferedSectionWriter.
+func (b *bufferedSectionWriter) Written() int64 { return b.cur - b.beg + int64(b.n) }
+
 func (b *bufferedSectionWriter) Write(p []byte) (nn int, err error) {
-	if b.max >= 0 && b.cur-b.beg+int64(b.n+len(p)) > b.max {
+	if b.max >= 0 && b.Written()+int64(len(p)) > b.max {
 		return 0, io.ErrShortBuffer // Would go over b.max.
 	}
 	for len(p) > b.Available() && b.err == nil {
@@ -186,7 +193,7 @@ func (b *bufferedSectionWriter) Flush() error {
 	if b.n <= 0 {
 		return nil
 	}
-	if b.max >= 0 && b.cur-b.beg+int64(b.n) > b.max {
+	if b.max >= 0 && b.Written() > b.max {
 		return io.ErrShortBuffer // Would go over b.max.
 	}
 	n, err := b.w.WriteAt(b.buf[0:b.n], b.cur)

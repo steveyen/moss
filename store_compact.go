@@ -86,7 +86,10 @@ func (s *Store) compact(footer *Footer, higher Snapshot) error {
 		}
 		ssHigher.ensureSorted(0, len(ssHigher.a)-1)
 
-		ss = &segmentStack{options: ss.options}
+		ss = &segmentStack{
+			options: ss.options,
+			a:       make([]Segment, 0, len(footer.ss.a)+len(ssHigher.a)),
+		}
 		ss.a = append(ss.a, footer.ss.a...)
 		ss.a = append(ss.a, ssHigher.a...)
 	}
@@ -169,13 +172,13 @@ type compactWriter struct {
 }
 
 func (cw *compactWriter) Mutate(operation uint64, key, val []byte) error {
-	keyStart := cw.bufWriter.Offset()
+	keyStart := cw.bufWriter.Written()
+
 	_, err := cw.bufWriter.Write(key)
 	if err != nil {
 		return err
 	}
 
-	cw.bufWriter.Offset()
 	_, err = cw.bufWriter.Write(val)
 	if err != nil {
 		return err
