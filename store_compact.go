@@ -111,7 +111,7 @@ func (s *Store) compact(footer *Footer, higher Snapshot) error {
 		bufWriter: NewBufferedSectionWriter(fileCompact, bufBegPos, -1, COMPACTION_BUFFER_SIZE),
 	}
 
-	err = ss.mergeInto(0, compactWriter, nil)
+	err = ss.mergeInto(0, compactWriter, nil, false)
 	if err != nil {
 		frefCompact.DecRef()
 		return err

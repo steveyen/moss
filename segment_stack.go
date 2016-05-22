@@ -215,7 +215,7 @@ func (ss *segmentStack) merge(newTopLevel int, base *segmentStack) (
 		return nil, err
 	}
 
-	err = ss.mergeInto(newTopLevel, mergedSegment, base)
+	err = ss.mergeInto(newTopLevel, mergedSegment, base, true)
 	if err != nil {
 		return nil, err
 	}
@@ -233,7 +233,7 @@ func (ss *segmentStack) merge(newTopLevel int, base *segmentStack) (
 }
 
 func (ss *segmentStack) mergeInto(minSegmentLevel int, dest SegmentMutator,
-	base *segmentStack) error {
+	base *segmentStack, optimizeTail bool) error {
 	iter, err := ss.startIterator(nil, nil, IteratorOptions{
 		IncludeDeletions: true,
 		SkipLowerLevel:   true,
@@ -257,7 +257,7 @@ OUTER:
 			return err
 		}
 
-		if len(iter.cursors) == 1 {
+		if optimizeTail && len(iter.cursors) == 1 {
 			// When only 1 cursor remains, copy the remains of the
 			// last segment more directly instead of Next()'ing
 			// through the iterator.
