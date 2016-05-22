@@ -21,12 +21,12 @@ import (
 
 type CompactionConcern int // See StorePersistOptions.CompactionConcern.
 
-// CompactionDisabled means no compaction.
-var CompactionDisabled = CompactionConcern(0)
+// CompactionDisable means no compaction.
+var CompactionDisable = CompactionConcern(0)
 
-// CompactionAllowed means compaction decision is automated and based
+// CompactionAllow means compaction decision is automated and based
 // on the configed policy and parameters.
-var CompactionAllowed = CompactionConcern(1)
+var CompactionAllow = CompactionConcern(1)
 
 // CompactionForce means compaction should be performed immediately.
 var CompactionForce = CompactionConcern(2)
@@ -50,7 +50,7 @@ func (s *Store) compactMaybe(higher Snapshot, persistOptions StorePersistOptions
 	}
 	defer footer.Close()
 
-	if compactionConcern == CompactionAllowed {
+	if compactionConcern == CompactionAllow {
 		if footer.ss.calcTargetTopLevel() <= 0 {
 			compactionConcern = CompactionForce
 		}
