@@ -24,6 +24,7 @@ type File interface {
 	io.WriterAt
 	io.Closer
 	Stat() (os.FileInfo, error)
+	Sync() error
 	Truncate(size int64) error
 }
 
@@ -109,7 +110,7 @@ func (r *FileRef) Close() error {
 
 // --------------------------------------------------------
 
-// OsFile interface let's one convert from a File to an os.File.
+// OsFile interface allows conversion from a File to an os.File.
 type OsFile interface {
 	OsFile() *os.File
 }
@@ -127,6 +128,8 @@ func ToOsFile(f File) *os.File {
 
 // --------------------------------------------------------
 
+// NewBufferedSectionWriter converts incoming Write() requests into
+// buffered WriteAt()'s in a section of a file.
 func NewBufferedSectionWriter(w io.WriterAt, begPos, maxBytes int64,
 	bufSize int) *bufferedSectionWriter {
 	return &bufferedSectionWriter{

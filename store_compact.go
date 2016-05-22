@@ -95,7 +95,7 @@ func (s *Store) compact(footer *Footer, higher Snapshot) error {
 	}
 
 	s.m.Lock()
-	fref, file, err := s.startFileLOCKED()
+	frefCompact, fileCompact, err := s.startFileLOCKED()
 	s.m.Unlock()
 	if err != nil {
 		return err
@@ -107,22 +107,22 @@ func (s *Store) compact(footer *Footer, higher Snapshot) error {
 	bufBegPos := pageAlign(kvsBegPos + 1 + (int64(8+8) * int64(stats.CurOps)))
 
 	compactWriter := &compactWriter{
-		kvsWriter: NewBufferedSectionWriter(file, kvsBegPos, -1, COMPACTION_BUFFER_SIZE),
-		bufWriter: NewBufferedSectionWriter(file, bufBegPos, -1, COMPACTION_BUFFER_SIZE),
+		kvsWriter: NewBufferedSectionWriter(fileCompact, kvsBegPos, -1, COMPACTION_BUFFER_SIZE),
+		bufWriter: NewBufferedSectionWriter(fileCompact, bufBegPos, -1, COMPACTION_BUFFER_SIZE),
 	}
 
 	err = ss.mergeInto(0, compactWriter, nil)
 	if err != nil {
-		fref.DecRef()
+		frefCompact.DecRef()
 		return err
 	}
 
 	if err = compactWriter.kvsWriter.Flush(); err != nil {
-		fref.DecRef()
+		frefCompact.DecRef()
 		return err
 	}
 	if err = compactWriter.bufWriter.Flush(); err != nil {
-		fref.DecRef()
+		frefCompact.DecRef()
 		return err
 	}
 
@@ -139,17 +139,28 @@ func (s *Store) compact(footer *Footer, higher Snapshot) error {
 				TotValByte: compactWriter.totValByte,
 			},
 		},
-		fref: fref,
+		fref: frefCompact,
 	}
 
-	if err = s.persistFooter(file, compactFooter); err != nil {
-		fref.DecRef()
+	if err = s.persistFooter(fileCompact, compactFooter); err != nil {
+		frefCompact.DecRef()
+		return err
+	}
+
+	if err = fileCompact.Sync(); err != nil {
+		frefCompact.DecRef()
+		return err
+	}
+
+	footerReady, err := ReadFooter(s.options, fileCompact)
+	if err != nil {
+		frefCompact.DecRef()
 		return err
 	}
 
 	s.m.Lock()
 	footerPrev := s.footer
-	s.footer = compactFooter // Owns the ref-count.
+	s.footer = footerReady // Owns the frefCompact ref-count.
 	s.m.Unlock()
 
 	if footerPrev != nil {

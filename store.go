@@ -256,7 +256,18 @@ func (s *Store) persistSegmentStack(ss *segmentStack) (Snapshot, error) {
 
 	ss.ensureSorted(0, len(ss.a)-1)
 
-	segmentLocs := make([]SegmentLoc, 0, len(ss.a))
+	numSegmentLocs := len(ss.a)
+
+	s.m.Lock()
+	if s.footer != nil {
+		numSegmentLocs += len(s.footer.SegmentLocs)
+	}
+	segmentLocs := make([]SegmentLoc, 0, numSegmentLocs)
+	if s.footer != nil {
+		segmentLocs = append(segmentLocs, s.footer.SegmentLocs...)
+	}
+	s.m.Unlock()
+
 	for _, segment := range ss.a {
 		segmentLoc, err := s.persistSegment(file, segment)
 		if err != nil {

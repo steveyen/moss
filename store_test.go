@@ -398,6 +398,8 @@ func TestStoreCompaction(t *testing.T) {
 
 	m.Start()
 
+	mirror := map[string]string{}
+
 	set1000 := true
 	delTens := true
 	updateOdds := true
@@ -407,8 +409,10 @@ func TestStoreCompaction(t *testing.T) {
 		if set1000 {
 			b, _ := m.NewBatch(0, 0)
 			for i := 0; i < 1000; i++ {
-				x := []byte(fmt.Sprintf("%d", i))
+				xs := fmt.Sprintf("%d", i)
+				x := []byte(xs)
 				b.Set(x, x)
+				mirror[xs] = xs
 			}
 			err = m.ExecuteBatch(b, WriteOptions{})
 			if err != nil {
@@ -423,8 +427,10 @@ func TestStoreCompaction(t *testing.T) {
 		if delTens {
 			b, _ := m.NewBatch(0, 0)
 			for i := 0; i < 1000; i += 10 {
-				x := []byte(fmt.Sprintf("%d", i))
+				xs := fmt.Sprintf("%d", i)
+				x := []byte(xs)
 				b.Del(x)
+				delete(mirror, xs)
 			}
 			err = m.ExecuteBatch(b, WriteOptions{})
 			if err != nil {
@@ -439,8 +445,11 @@ func TestStoreCompaction(t *testing.T) {
 		if updateOdds {
 			b, _ := m.NewBatch(0, 0)
 			for i := 1; i < 1000; i += 2 {
-				x := []byte(fmt.Sprintf("%d", i))
-				b.Set(x, []byte(fmt.Sprintf("odd-%d", i)))
+				xs := fmt.Sprintf("%d", i)
+				x := []byte(xs)
+				vs := fmt.Sprintf("odd-%d", i)
+				b.Set(x, []byte(vs))
+				mirror[xs] = vs
 			}
 			err = m.ExecuteBatch(b, WriteOptions{})
 			if err != nil {
@@ -501,10 +510,12 @@ func TestStoreCompaction(t *testing.T) {
 		t.Errorf("expected store2.footer.fref.refs == 1")
 	}
 	if len(store2.footer.SegmentLocs) != 1 {
-		t.Errorf("expected store2.footer.SegmentLocs")
+		t.Errorf("expected store2.footer.SegmentLocs == 1, got: %d",
+			len(store2.footer.SegmentLocs))
 	}
 	if len(store2.footer.ss.a) != 1 {
-		t.Errorf("expected store2.footer.ss.a")
+		t.Errorf("expected store2.footer.ss.a ==1, got: %d",
+			len(store2.footer.ss.a))
 	}
 	if store2.footer.ss.lowerLevelSnapshot != nil {
 		t.Errorf("expected segStack2.lowerLevelSnapshot nil")
@@ -560,11 +571,15 @@ func TestStoreCompaction(t *testing.T) {
 		t.Errorf("expected ss2 iter to start")
 	}
 
+	numKVs := 0
 	for {
 		k, v, err := iter2.Current()
 		if err == ErrIteratorDone {
 			break
 		}
+
+		numKVs++
+
 		ks := string(k)
 		vs := string(v)
 
@@ -584,9 +599,17 @@ func TestStoreCompaction(t *testing.T) {
 			}
 		}
 
+		if mirror[ks] != vs {
+			t.Errorf("mirror[ks] (%s) != vs (%s)", mirror[ks], vs)
+		}
+
 		err = iter2.Next()
 		if err == ErrIteratorDone {
 			break
 		}
+	}
+
+	if numKVs != len(mirror) {
+		t.Errorf("numKVs: %d, not matching len(mirror): %d", numKVs, len(mirror))
 	}
 }
