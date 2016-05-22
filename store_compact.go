@@ -51,8 +51,15 @@ func (s *Store) compactMaybe(higher Snapshot, persistOptions StorePersistOptions
 	defer footer.Close()
 
 	if compactionConcern == CompactionAllow {
-		if footer.ss.calcTargetTopLevel() <= 0 {
-			compactionConcern = CompactionForce
+		if len(footer.ss.a) >= 2 {
+			totUpperLen := 0
+			for i := 1; i < len(footer.ss.a)-1; i++ {
+				totUpperLen += footer.ss.a[i].Len()
+			}
+			pct := float64(totUpperLen) / float64(footer.ss.a[0].Len())
+			if pct >= s.options.CompactionPercentage {
+				compactionConcern = CompactionForce
+			}
 		}
 	}
 

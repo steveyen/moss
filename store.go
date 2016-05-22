@@ -72,6 +72,12 @@ type StoreOptions struct {
 	// NewCollection().
 	CollectionOptions CollectionOptions
 
+	// CompactionPercentage determines when a compaction will run when
+	// CompactionConcern is CompactionAllowed.  When the percentage of
+	// ops between the non-base level and the base level is greater
+	// than CompactionPercentage, then compaction will be run.
+	CompactionPercentage float64
+
 	// OpenFile allows apps to optionally provide their own file
 	// opening implementation.  When nil, os.OpenFile() is used.
 	OpenFile OpenFile `json:"-"`
