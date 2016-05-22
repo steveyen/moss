@@ -589,18 +589,26 @@ func loadFooterSegments(options *StoreOptions, f *Footer, file File) (*Footer, e
 	for i := range f.SegmentLocs {
 		sloc := &f.SegmentLocs[i]
 
-		kvsBytes := mm[sloc.KvsOffset : sloc.KvsOffset+sloc.KvsBytes]
-		kvsBytesSliceHeader := (*reflect.SliceHeader)(unsafe.Pointer(&kvsBytes))
-
 		var kvs []uint64
-		kvsSliceHeader := (*reflect.SliceHeader)(unsafe.Pointer(&kvs))
-		kvsSliceHeader.Data = kvsBytesSliceHeader.Data
-		kvsSliceHeader.Len = kvsBytesSliceHeader.Len / 8
-		kvsSliceHeader.Cap = kvsSliceHeader.Len
+		var buf []byte
+
+		if sloc.KvsBytes > 0 {
+			kvsBytes := mm[sloc.KvsOffset : sloc.KvsOffset+sloc.KvsBytes]
+			kvsBytesSliceHeader := (*reflect.SliceHeader)(unsafe.Pointer(&kvsBytes))
+
+			kvsSliceHeader := (*reflect.SliceHeader)(unsafe.Pointer(&kvs))
+			kvsSliceHeader.Data = kvsBytesSliceHeader.Data
+			kvsSliceHeader.Len = kvsBytesSliceHeader.Len / 8
+			kvsSliceHeader.Cap = kvsSliceHeader.Len
+
+			if sloc.BufBytes > 0 {
+				buf = mm[sloc.BufOffset : sloc.BufOffset+sloc.BufBytes]
+			}
+		}
 
 		f.ss.a[i] = &segment{
 			kvs: kvs,
-			buf: mm[sloc.BufOffset : sloc.BufOffset+sloc.BufBytes],
+			buf: buf,
 
 			totOperationSet: sloc.TotOpsSet,
 			totOperationDel: sloc.TotOpsDel,
