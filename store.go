@@ -363,7 +363,11 @@ func (s *Store) persistHeader(file File) error {
 	}
 
 	str := "moss-data-store:\n" + string(buf) + "\n"
+	if len(str) >= STORE_PAGE_SIZE {
+		return fmt.Errorf("store: header size too big")
+	}
 	str = str + strings.Repeat("\n", STORE_PAGE_SIZE-len(str))
+
 	n, err := file.WriteAt([]byte(str), 0)
 	if err != nil {
 		return err
