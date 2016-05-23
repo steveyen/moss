@@ -61,6 +61,8 @@ func (ss *segmentStack) Close() error {
 	return nil
 }
 
+// ------------------------------------------------------
+
 // Get retrieves a val from a segmentStack.
 func (ss *segmentStack) Get(key []byte, readOptions ReadOptions) ([]byte, error) {
 	return ss.get(key, len(ss.a)-1, nil)
