@@ -97,9 +97,8 @@ type StorePersistOptions struct {
 // Header represents the JSON stored at the head of a file, where the
 // file header bytes should be less than STORE_PAGE_SIZE length.
 type Header struct {
-	Version         uint32 // The file format / STORE_VERSION.
-	CreatedAt       string
-	CreatedPageSize int
+	Version   uint32 // The file format / STORE_VERSION.
+	CreatedAt string
 }
 
 // Footer represents a footer record persisted in a file, and
@@ -356,9 +355,8 @@ func (s *Store) createNextFileLOCKED() (string, File, error) {
 
 func (s *Store) persistHeader(file File) error {
 	buf, err := json.Marshal(Header{
-		Version:         STORE_VERSION,
-		CreatedAt:       time.Now().Format(time.RFC3339),
-		CreatedPageSize: os.Getpagesize(),
+		Version:   STORE_VERSION,
+		CreatedAt: time.Now().Format(time.RFC3339),
 	})
 	if err != nil {
 		return err
