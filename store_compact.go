@@ -33,7 +33,7 @@ var CompactionForce = CompactionConcern(2)
 
 // COMPACTION_BUFFER_SIZE is the buffer size used for compaction
 // buffers, where writes are buffered before flushing to disk.
-var COMPACTION_BUFFER_SIZE = STORE_PAGE_SIZE * 256
+var COMPACTION_BUFFER_SIZE = STORE_PAGE_SIZE * 1024 // TODO: config.
 
 // --------------------------------------------------------
 
