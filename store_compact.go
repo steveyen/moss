@@ -141,8 +141,12 @@ func (s *Store) compact(footer *Footer, higher Snapshot) error {
 		return onError(err)
 	}
 
-	compactWriter.kvsWriter.Stop()
-	compactWriter.bufWriter.Stop()
+	if err = compactWriter.kvsWriter.Stop(); err != nil {
+		return onError(err)
+	}
+	if err = compactWriter.bufWriter.Stop(); err != nil {
+		return onError(err)
+	}
 
 	compactFooter := &Footer{
 		SegmentLocs: []SegmentLoc{

@@ -150,7 +150,7 @@ type ioBuf struct {
 }
 
 // NewBufferedSectionWriter converts incoming Write() requests into
-// buffered WriteAt()'s in a section of a file.
+// buffered, asynchronous WriteAt()'s in a section of a file.
 func NewBufferedSectionWriter(w io.WriterAt, begPos, maxBytes int64,
 	bufSize int) *bufferedSectionWriter {
 	stopCh := make(chan struct{})
