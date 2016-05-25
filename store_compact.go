@@ -33,7 +33,7 @@ var CompactionForce = CompactionConcern(2)
 
 // COMPACTION_BUFFER_SIZE is the buffer size used for compaction
 // buffers, where writes are buffered before flushing to disk.
-var COMPACTION_BUFFER_SIZE = STORE_PAGE_SIZE * 1024 // TODO: config.
+var COMPACTION_BUFFER_SIZE = STORE_PAGE_SIZE * 512 // TODO: config.
 
 // --------------------------------------------------------
 
@@ -114,24 +114,30 @@ func (s *Store) compact(footer *Footer, higher Snapshot) error {
 	bufBegPos := pageAlign(kvsBegPos + 1 + (int64(8+8) * int64(stats.CurOps)))
 
 	compactWriter := &compactWriter{
-		kvsWriter: NewBufferedSectionWriter(fileCompact, kvsBegPos, -1, COMPACTION_BUFFER_SIZE),
-		bufWriter: NewBufferedSectionWriter(fileCompact, bufBegPos, -1, COMPACTION_BUFFER_SIZE),
+		kvsWriter: NewBufferedSectionWriter(fileCompact, kvsBegPos, 0, COMPACTION_BUFFER_SIZE),
+		bufWriter: NewBufferedSectionWriter(fileCompact, bufBegPos, 0, COMPACTION_BUFFER_SIZE),
+	}
+	onError := func(err error) error {
+		compactWriter.kvsWriter.Stop()
+		compactWriter.bufWriter.Stop()
+		frefCompact.DecRef()
+		return err
 	}
 
 	err = ss.mergeInto(0, compactWriter, nil, false)
 	if err != nil {
-		frefCompact.DecRef()
-		return err
+		return onError(err)
 	}
 
 	if err = compactWriter.kvsWriter.Flush(); err != nil {
-		frefCompact.DecRef()
-		return err
+		return onError(err)
 	}
 	if err = compactWriter.bufWriter.Flush(); err != nil {
-		frefCompact.DecRef()
-		return err
+		return onError(err)
 	}
+
+	compactWriter.kvsWriter.Stop()
+	compactWriter.bufWriter.Stop()
 
 	compactFooter := &Footer{
 		SegmentLocs: []SegmentLoc{
@@ -150,19 +156,16 @@ func (s *Store) compact(footer *Footer, higher Snapshot) error {
 	}
 
 	if err = s.persistFooter(fileCompact, compactFooter); err != nil {
-		frefCompact.DecRef()
-		return err
+		return onError(err)
 	}
 
 	if err = fileCompact.Sync(); err != nil {
-		frefCompact.DecRef()
-		return err
+		return onError(err)
 	}
 
 	footerReady, err := ReadFooter(s.options, fileCompact)
 	if err != nil {
-		frefCompact.DecRef()
-		return err
+		return onError(err)
 	}
 
 	s.m.Lock()

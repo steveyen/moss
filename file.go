@@ -128,19 +128,6 @@ func ToOsFile(f File) *os.File {
 
 // --------------------------------------------------------
 
-// NewBufferedSectionWriter converts incoming Write() requests into
-// buffered WriteAt()'s in a section of a file.
-func NewBufferedSectionWriter(w io.WriterAt, begPos, maxBytes int64,
-	bufSize int) *bufferedSectionWriter {
-	return &bufferedSectionWriter{
-		w:   w,
-		beg: begPos,
-		cur: begPos,
-		max: maxBytes,
-		buf: make([]byte, bufSize),
-	}
-}
-
 type bufferedSectionWriter struct {
 	err error
 	w   io.WriterAt
@@ -149,45 +136,89 @@ type bufferedSectionWriter struct {
 	max int64 // When > 0, max number of bytes we can write.
 	buf []byte
 	n   int
+
+	stopCh chan struct{}
+	doneCh chan struct{}
+	reqCh  chan ioBuf
+	resCh  chan ioBuf
+}
+
+type ioBuf struct {
+	buf []byte
+	pos int64
+	err error
+}
+
+// NewBufferedSectionWriter converts incoming Write() requests into
+// buffered WriteAt()'s in a section of a file.
+func NewBufferedSectionWriter(w io.WriterAt, begPos, maxBytes int64,
+	bufSize int) *bufferedSectionWriter {
+	stopCh := make(chan struct{})
+	doneCh := make(chan struct{})
+	reqCh := make(chan ioBuf)
+	resCh := make(chan ioBuf)
+
+	go func() {
+		defer close(doneCh)
+		defer close(resCh)
+
+		buf := make([]byte, bufSize)
+		var pos int64
+		var err error
+
+		for {
+			select {
+			case <-stopCh:
+				return
+			case resCh <- ioBuf{buf: buf, pos: pos, err: err}:
+			}
+
+			req, ok := <-reqCh
+			if ok {
+				buf, pos = req.buf, req.pos
+				if len(buf) > 0 {
+					_, err = w.WriteAt(buf, pos)
+				}
+			}
+		}
+	}()
+
+	return &bufferedSectionWriter{
+		w:   w,
+		beg: begPos,
+		cur: begPos,
+		max: maxBytes,
+		buf: make([]byte, bufSize),
+
+		stopCh: stopCh,
+		doneCh: doneCh,
+		reqCh:  reqCh,
+		resCh:  resCh,
+	}
 }
 
 // Offset returns the byte offset into the file where the
 // bufferedSectionWriter is currently logically positioned.
 func (b *bufferedSectionWriter) Offset() int64 { return b.cur + int64(b.n) }
 
-// Available returns the bytes remaining in the memory buffer where a
-// Write() won't incur an actual write or flush to the file.
-func (b *bufferedSectionWriter) Available() int { return len(b.buf) - b.n }
-
 // Written returns the logical number of bytes written to this
 // bufferedSectionWriter; or, the sum of bytes to Write() calls.
-func (b *bufferedSectionWriter) Written() int64 { return b.cur - b.beg + int64(b.n) }
+func (b *bufferedSectionWriter) Written() int64 { return b.Offset() - b.beg }
 
 func (b *bufferedSectionWriter) Write(p []byte) (nn int, err error) {
 	if b.max > 0 && b.Written()+int64(len(p)) > b.max {
 		return 0, io.ErrShortBuffer // Would go over b.max.
 	}
-	for len(p) > b.Available() && b.err == nil {
-		var n int
-		if b.n <= 0 {
-			// Avoid copy by direct write of large p when empty buffer.
-			n, b.err = b.w.WriteAt(p, b.cur)
-			b.cur += int64(n)
-		} else {
-			n = copy(b.buf[b.n:], p)
-			b.n += n
+	for len(p) > 0 && b.err == nil {
+		n := copy(b.buf[b.n:], p)
+		b.n += n
+		nn += n
+		if n < len(p) {
 			b.err = b.Flush()
 		}
-		nn += n
 		p = p[n:]
 	}
-	if b.err != nil {
-		return nn, b.err
-	}
-	n := copy(b.buf[b.n:], p)
-	b.n += n
-	nn += n
-	return nn, nil
+	return nn, b.err
 }
 
 func (b *bufferedSectionWriter) Flush() error {
@@ -197,21 +228,28 @@ func (b *bufferedSectionWriter) Flush() error {
 	if b.n <= 0 {
 		return nil
 	}
-	if b.max > 0 && b.Written() > b.max {
-		return io.ErrShortBuffer // Would go over b.max.
+
+	prevWrite := <-b.resCh
+	b.err = prevWrite.err
+	if b.err != nil {
+		return b.err
 	}
-	n, err := b.w.WriteAt(b.buf[0:b.n], b.cur)
-	if err != nil {
-		b.err = err
-		return err
+
+	b.reqCh <- ioBuf{buf: b.buf[0:b.n], pos: b.cur}
+
+	b.cur += int64(b.n)
+	b.buf = prevWrite.buf[:]
+	b.n = 0
+
+	return nil
+}
+
+func (b *bufferedSectionWriter) Stop() error {
+	if b.stopCh != nil {
+		close(b.stopCh)
+		close(b.reqCh)
+		<-b.doneCh
+		b.stopCh = nil
 	}
-	if n > 0 {
-		if n < b.n {
-			copy(b.buf[0:b.n-n], b.buf[n:b.n])
-			err = io.ErrShortWrite
-		}
-		b.n -= n
-		b.cur += int64(n)
-	}
-	return err
+	return b.err
 }
