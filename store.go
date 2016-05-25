@@ -75,6 +75,10 @@ type StoreOptions struct {
 	// than CompactionPercentage, then compaction will be run.
 	CompactionPercentage float64
 
+	// CompactionBufferPages is the number of pages to use for
+	// compaction, where writes are buffered before flushing to disk.
+	CompactionBufferPages int
+
 	// OpenFile allows apps to optionally provide their own file
 	// opening implementation.  When nil, os.OpenFile() is used.
 	OpenFile OpenFile `json:"-"`
@@ -82,6 +86,10 @@ type StoreOptions struct {
 	// Log is a callback invoked when store needs to log a debug
 	// message.  Optional, may be nil.
 	Log func(format string, a ...interface{}) `json:"-"`
+}
+
+var DefaultStoreOptions = StoreOptions{
+	CompactionBufferPages: 512,
 }
 
 // StorePersistOptions are provided to Store.Persist().

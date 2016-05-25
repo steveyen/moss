@@ -31,10 +31,6 @@ var CompactionAllow = CompactionConcern(1)
 // CompactionForce means compaction should be performed immediately.
 var CompactionForce = CompactionConcern(2)
 
-// COMPACTION_BUFFER_SIZE is the buffer size used for compaction
-// buffers, where writes are buffered before flushing to disk.
-var COMPACTION_BUFFER_SIZE = STORE_PAGE_SIZE * 512 // TODO: config.
-
 // --------------------------------------------------------
 
 func (s *Store) compactMaybe(higher Snapshot, persistOptions StorePersistOptions) (
@@ -113,9 +109,18 @@ func (s *Store) compact(footer *Footer, higher Snapshot) error {
 	kvsBegPos := pageAlign(int64(STORE_PAGE_SIZE))
 	bufBegPos := pageAlign(kvsBegPos + 1 + (int64(8+8) * int64(stats.CurOps)))
 
+	compactionBufferPages := 0
+	if s.options != nil {
+		compactionBufferPages = s.options.CompactionBufferPages
+	}
+	if compactionBufferPages <= 0 {
+		compactionBufferPages = DefaultStoreOptions.CompactionBufferPages
+	}
+	compactionBufferSize := STORE_PAGE_SIZE * compactionBufferPages
+
 	compactWriter := &compactWriter{
-		kvsWriter: NewBufferedSectionWriter(fileCompact, kvsBegPos, 0, COMPACTION_BUFFER_SIZE),
-		bufWriter: NewBufferedSectionWriter(fileCompact, bufBegPos, 0, COMPACTION_BUFFER_SIZE),
+		kvsWriter: NewBufferedSectionWriter(fileCompact, kvsBegPos, 0, compactionBufferSize),
+		bufWriter: NewBufferedSectionWriter(fileCompact, bufBegPos, 0, compactionBufferSize),
 	}
 	onError := func(err error) error {
 		compactWriter.kvsWriter.Stop()
