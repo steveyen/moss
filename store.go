@@ -79,6 +79,10 @@ type StoreOptions struct {
 	// compaction, where writes are buffered before flushing to disk.
 	CompactionBufferPages int
 
+	// CompactionSync of true means perform a file sync at the end of
+	// compaction for additional safety.
+	CompactionSync bool
+
 	// OpenFile allows apps to optionally provide their own file
 	// opening implementation.  When nil, os.OpenFile() is used.
 	OpenFile OpenFile `json:"-"`

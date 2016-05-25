@@ -168,8 +168,10 @@ func (s *Store) compact(footer *Footer, higher Snapshot) error {
 		return onError(err)
 	}
 
-	if err = fileCompact.Sync(); err != nil {
-		return onError(err)
+	if s.options != nil && s.options.CompactionSync {
+		if err = fileCompact.Sync(); err != nil {
+			return onError(err)
+		}
 	}
 
 	footerReady, err := ReadFooter(s.options, fileCompact)
