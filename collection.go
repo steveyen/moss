@@ -78,6 +78,11 @@ type collection struct {
 
 	// stats leverage sync/atomic counters.
 	stats *CollectionStats
+
+	// ----------------------------------------
+
+	// mergings tracks inflight, concurrent merging activity.
+	mergings []*merging
 }
 
 // ------------------------------------------------------

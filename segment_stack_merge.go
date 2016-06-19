@@ -13,7 +13,7 @@ package moss
 
 // calcTargetTopLevel() heuristically computes a new top level that
 // the segmentStack should be merged to.
-func (ss *segmentStack) calcTargetTopLevel() int {
+func (ss *segmentStack) calcTargetTopLevel(from, to int) int {
 	var minMergePercentage float64
 	if ss.options != nil {
 		minMergePercentage = ss.options.MinMergePercentage
@@ -22,8 +22,8 @@ func (ss *segmentStack) calcTargetTopLevel() int {
 		minMergePercentage = DefaultCollectionOptions.MinMergePercentage
 	}
 
-	newTopLevel := 0
-	maxTopLevel := len(ss.a) - 2
+	newTopLevel := from
+	maxTopLevel := to - 2
 
 	for newTopLevel < maxTopLevel {
 		numX0 := ss.a[newTopLevel].Len()
@@ -44,22 +44,7 @@ func (ss *segmentStack) calcTargetTopLevel() int {
 // are at the given newTopLevel and higher.
 func (ss *segmentStack) merge(newTopLevel int, base *segmentStack) (
 	*segmentStack, error) {
-	// ----------------------------------------------------
-	// First, rough estimate the bytes neeeded.
-
-	var totOps int
-	var totKeyBytes, totValBytes uint64
-	for i := newTopLevel; i < len(ss.a); i++ {
-		totOps += ss.a[i].Len()
-		nk, nv := ss.a[i].NumKeyValBytes()
-		totKeyBytes += nk
-		totValBytes += nv
-	}
-
-	// ----------------------------------------------------
-	// Next, use an iterator for the actual merge.
-
-	mergedSegment, err := newSegment(totOps, int(totKeyBytes+totValBytes))
+	mergedSegment, err := ss.mergeAllocate(newTopLevel, len(ss.a))
 	if err != nil {
 		return nil, err
 	}
@@ -80,6 +65,24 @@ func (ss *segmentStack) merge(newTopLevel int, base *segmentStack) (
 		lowerLevelSnapshot: ss.lowerLevelSnapshot.addRef(),
 	}, nil
 }
+
+// ------------------------------------------------------
+
+func (ss *segmentStack) mergeAllocate(minSegmentLevel, maxSegmentHeight int) (
+	*segment, error) {
+	var totOps int
+	var totKeyBytes, totValBytes uint64
+	for i := minSegmentLevel; i < maxSegmentHeight; i++ {
+		totOps += ss.a[i].Len()
+		nk, nv := ss.a[i].NumKeyValBytes()
+		totKeyBytes += nk
+		totValBytes += nv
+	}
+
+	return newSegment(totOps, int(totKeyBytes+totValBytes))
+}
+
+// ------------------------------------------------------
 
 func (ss *segmentStack) mergeInto(minSegmentLevel, maxSegmentHeight int,
 	dest SegmentMutator, base *segmentStack, optimizeTail bool,

@@ -12,9 +12,21 @@
 package moss
 
 import (
+	"fmt"
 	"sync/atomic"
 	"time"
 )
+
+// A merging represents a concurrent, background merging of a subset
+// of a segmentStack.
+type merging struct {
+	ss         *segmentStack // The segmentStack being merged.
+	base       *segmentStack // The base being merged, possibly nil.
+	begLevel   int           // The beginning level of ss's levels being merged.
+	endHeight  int           // The ending height of the ss's levels being merged.
+	outSegment *segment      // The output of the merging.
+	cancelCh   chan error    // Closed when the merging is canceled.
+}
 
 // NotifyMerger sends a message (optionally synchronously) to the merger
 // to run another cycle.  Providing a kind of "mergeAll" forces a full
@@ -200,13 +212,32 @@ func (m *collection) mergerWaitForWork(pings []ping) (
 // the stackDirtyMid and swaps the merged result into the collection.
 func (m *collection) mergerMain(stackDirtyMid, stackDirtyBase *segmentStack,
 	mergeAll bool) (ok bool) {
+	if stackDirtyMid != nil {
+		if stackDirtyBase != nil {
+			fmt.Printf("  mergerMain: %d, %d, %t\n",
+				len(stackDirtyMid.a), len(stackDirtyBase.a), mergeAll)
+		} else {
+			fmt.Printf("  mergerMain: %d, 0, %t\n",
+				len(stackDirtyMid.a), mergeAll)
+		}
+	}
+
 	if stackDirtyMid != nil && len(stackDirtyMid.a) > 1 {
+		if !mergeAll && len(stackDirtyMid.a) > 12 {
+			m.mergerStartChildren(stackDirtyMid, stackDirtyBase)
+
+			stackDirtyMid.Close()
+			stackDirtyBase.Close()
+
+			return true
+		}
+
 		newTopLevel := 0
 
 		if !mergeAll {
 			// If we have not been asked to merge all segments,
 			// then heuristically calc a newTopLevel.
-			newTopLevel = stackDirtyMid.calcTargetTopLevel()
+			newTopLevel = stackDirtyMid.calcTargetTopLevel(0, len(stackDirtyMid.a))
 		}
 
 		if newTopLevel <= 0 {
@@ -278,6 +309,10 @@ func (m *collection) mergerNotifyPersister() {
 		m.stackDirtyMid != nil && len(m.stackDirtyMid.a) > 0 {
 		atomic.AddUint64(&m.stats.TotMergerLowerLevelNotify, 1)
 
+		// Cancelling the mergings as the lower level will be
+		// logically incorporating the would-have-been-merged data.
+		m.cancelMergingsLOCKED(0, len(m.stackDirtyMid.a))
+
 		m.stackDirtyBase = m.stackDirtyMid
 		m.stackDirtyMid = nil
 
@@ -328,4 +363,190 @@ func (m *collection) mergerNotifyPersister() {
 	} else {
 		atomic.AddUint64(&m.stats.TotMergerWaitOutgoingSkip, 1)
 	}
+}
+
+// ------------------------------------------------------
+
+func (m *collection) cancelMergingsLOCKED(start, end int) {
+	if end > len(m.mergings) {
+		return
+	}
+
+	for i := start; i < end; i++ {
+		merging := m.mergings[i]
+		close(merging.cancelCh)
+		fmt.Printf("  canceled merging: [%d, %d)\n",
+			merging.begLevel, merging.endHeight)
+	}
+
+	copy(m.mergings[start:], m.mergings[end:])
+	for k, n := len(m.mergings)-end+start, len(m.mergings); k < n; k++ {
+		m.mergings[k] = nil
+	}
+	m.mergings = m.mergings[:len(m.mergings)-end+start]
+}
+
+func (m *collection) shiftMergingsLOCKED(start, end, shift int) {
+	for i := start; i < end; i++ {
+		merging := m.mergings[i]
+		merging.begLevel += shift
+		merging.endHeight += shift
+	}
+}
+
+// ------------------------------------------------------
+
+func (m *collection) mergerStartChildren(ss, base *segmentStack) (err error) {
+	m.m.Lock()
+
+	mergerConcurrency := 4 // TODO.
+
+	stride := len(ss.a) / mergerConcurrency
+	if stride < 2 {
+		stride = 2
+	}
+
+	for i := 0; i < len(ss.a); i += stride {
+		err = m.mergerStartChildLOCKED(ss, base, i, i+stride)
+		if err != nil {
+			return err
+		}
+	}
+
+	fmt.Printf("    mergings: %d, err: %v\n", len(m.mergings), err)
+
+	m.m.Unlock()
+
+	return err
+}
+
+func (m *collection) mergerStartChildLOCKED(ss, base *segmentStack,
+	from, to int) error {
+	if ss != nil {
+		fmt.Printf("    startChildren [%d, %d), ss: %d\n",
+			from, to, len(ss.a))
+	}
+
+	if ss == nil || len(ss.a) <= 1 || from >= to-1 || to > len(ss.a) {
+		return nil
+	}
+
+	insertAt := 0
+	for i, merging := range m.mergings {
+		if rangeOverlaps(from, to, merging.begLevel, merging.endHeight) {
+			fmt.Printf("      rangeOverlaps [%d, %d) vs [%d, %d)\n",
+				merging.begLevel, merging.endHeight,
+				from, to)
+			return nil // Return if we overlap with any existing merging.
+		}
+		if from < merging.begLevel {
+			insertAt = i
+		}
+	}
+
+	outSegment, err := ss.mergeAllocate(from, to)
+	if err != nil {
+		return err
+	}
+
+	merging := &merging{
+		ss:         ss,
+		base:       base,
+		begLevel:   from,
+		endHeight:  to,
+		outSegment: outSegment,
+		cancelCh:   make(chan error, 1),
+	}
+
+	if merging.ss != nil {
+		merging.ss.addRef()
+	}
+	if merging.base != nil {
+		merging.base.addRef()
+	}
+
+	m.mergings = append(m.mergings, nil)
+	copy(m.mergings[insertAt+1:], m.mergings[insertAt:])
+	m.mergings[insertAt] = merging
+
+	ss.addRef() // Owned by the child goroutine.
+
+	go m.runMergerChild(merging, from, to)
+
+	return nil
+}
+
+func rangeOverlaps(fromA, toA, fromB, toB int) bool {
+	return (fromA >= fromB && fromA < toB) || (toA > fromB && toA <= toB) ||
+		(fromB >= fromA && fromB < toA) || (toB > fromA && toB <= toA)
+}
+
+func (m *collection) runMergerChild(merging *merging, from, to int) {
+	defer merging.ss.Close()
+
+	err := merging.ss.mergeInto(from, to, merging.outSegment, merging.base,
+		true, merging.cancelCh)
+
+	m.m.Lock()
+	defer m.m.Unlock()
+
+	if merging.cancelCh != nil {
+		select {
+		case cancelErr := <-merging.cancelCh:
+			if err == nil {
+				err = cancelErr
+			}
+			if err == nil {
+				err = ErrCanceled
+			}
+		default:
+			// NO-OP.
+		}
+	}
+
+	for i, mx := range m.mergings {
+		if mx != merging {
+			continue
+		}
+
+		copy(m.mergings[i:], m.mergings[i+1:])
+		m.mergings[len(m.mergings)-1] = nil
+		m.mergings = m.mergings[:len(m.mergings)-1]
+
+		if err != nil {
+			break
+		}
+
+		stackDirtyMidPrev := m.stackDirtyMid
+		if stackDirtyMidPrev == nil ||
+			len(stackDirtyMidPrev.a) < merging.endHeight {
+			err = fmt.Errorf("collection_merger: missing stackDirtyMidPrev")
+			break
+		}
+
+		ssNew := &segmentStack{
+			options:            merging.ss.options,
+			a:                  make([]Segment, 0, len(merging.ss.a)),
+			refs:               1,
+			lowerLevelSnapshot: merging.ss.lowerLevelSnapshot.addRef(),
+		}
+
+		ssNew.a = append(ssNew.a, stackDirtyMidPrev.a[0:merging.begLevel]...)
+		ssNew.a = append(ssNew.a, merging.outSegment)
+		ssNew.a = append(ssNew.a, stackDirtyMidPrev.a[merging.endHeight:]...)
+
+		m.stackDirtyMid = ssNew
+
+		m.shiftMergingsLOCKED(i, len(m.mergings),
+			merging.endHeight-merging.begLevel)
+
+		stackDirtyMidPrev.Close()
+
+		fmt.Printf("      child merging done [%d, %d)\n",
+			merging.begLevel, merging.endHeight)
+
+		return
+	}
+
+	// TODO: log & propagate error?
 }
