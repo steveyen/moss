@@ -341,6 +341,10 @@ type IteratorOptions struct {
 	// array length.
 	MaxSegmentHeight int
 
+	// Extra is for optional, additional iterator options, such as for
+	// storage-specific options.
+	Extra interface{}
+
 	// base is used internally to provide the iterator with a
 	// segmentStack to use instead of a lower-level snapshot.  It's
 	// used so that segment merging consults the stackDirtyBase.

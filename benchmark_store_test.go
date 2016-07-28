@@ -183,7 +183,7 @@ func benchmarkStoreDo(b *testing.B, spec benchStoreSpec, buf []byte) {
 
 	so := StoreOptions{CollectionOptions: co}
 
-	spo := StorePersistOptions{CompactionConcern: CompactionAllow}
+	spo := StorePersistOptions{CompactionConcern: CompactionForce}
 
 	var store *Store
 

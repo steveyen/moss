@@ -94,6 +94,8 @@ type segment struct {
 	totOperationMerge uint64
 	totKeyByte        uint64
 	totValByte        uint64
+
+	bufOffset int64 // Must be applied when accessing buf.
 }
 
 // See the OperationXxx consts.
@@ -296,7 +298,7 @@ func (a *segment) FindStartKeyInclusivePos(startKeyInclusive []byte) int {
 		h := i + (j-i)/2 // Keep i <= h < j.
 		x := h * 2
 		klen := int((maskKeyLength & kvs[x]) >> 32)
-		kbeg := int(kvs[x+1])
+		kbeg := int(int64(kvs[x+1]) + a.bufOffset)
 		if bytes.Compare(buf[kbeg:kbeg+klen], startKeyInclusive) < 0 {
 			i = h + 1
 		} else {
@@ -319,11 +321,26 @@ func (a *segment) GetOperationKeyVal(pos int) (uint64, []byte, []byte) {
 	}
 
 	opklvl := a.kvs[x]
-	kstart := int(a.kvs[x+1])
+	kstart := int(int64(a.kvs[x+1]) + a.bufOffset)
 	operation, keyLen, valLen := decodeOpKeyLenValLen(opklvl)
 	vstart := kstart + keyLen
 
 	return operation, a.buf[kstart:vstart], a.buf[vstart : vstart+valLen]
+}
+
+func (a *segment) GetOperationKeyValOffsets(pos int) (
+	operation, keyStart, keyLen, valStart, valLen uint64) {
+	x := pos * 2
+	if x >= len(a.kvs) {
+		return 0, 0, 0, 0, 0
+	}
+
+	opklvl := a.kvs[x]
+	keyStart = uint64(int64(a.kvs[x+1]) + a.bufOffset)
+	op, klen, vlen := decodeOpKeyLenValLen(opklvl)
+	valStart = keyStart + uint64(klen)
+
+	return op, keyStart, uint64(klen), valStart, uint64(vlen)
 }
 
 // ------------------------------------------------------

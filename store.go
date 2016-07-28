@@ -101,6 +101,32 @@ type StorePersistOptions struct {
 	CompactionConcern CompactionConcern
 }
 
+// StoreIteratorOptions represents an optional set of parameters for
+// the IteratorOptions.Extra field.
+type StoreIteratorOptions struct {
+	// MaxItemsForMMap defines the max number of items in an iteration
+	// where the store iterator will just use mmap'ed page-faulting to
+	// load in items, which might work better for small iterations.
+	// User benchmarking is highly recommended to see if this is
+	// beneficial for your use case.  When the number of items in an
+	// iteration is greater than MaxItemsForMMap, retrievals will be
+	// via large file Read()'s.
+	MaxItemsForMMap int
+
+	// NumReaders is used when an iterator uses Read() to retrieve
+	// items from disk.  It is the number of concurrent reading
+	// goroutines used for Read()'s.  When 0, then
+	// STORE_ITERATOR_CONCURRENT_NUM_READERS is used as the default.
+	NumReaders int
+
+	// PagesPerRead is used when an iterator uses Read() to retrieve
+	// items from disk.  It defines number of contiguous pages that
+	// will be retrieved for every Read() performed by the iterator.
+	// See also STORE_PAGE_SIZE.  When 0, the default will be
+	// STORE_ITERATOR_CONCURRENT_PAGES_PER_READ.
+	PagesPerRead int
+}
+
 // Header represents the JSON stored at the head of a file, where the
 // file header bytes should be less than STORE_PAGE_SIZE length.
 type Header struct {
