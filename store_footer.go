@@ -235,12 +235,14 @@ func (f *Footer) Get(key []byte, readOptions ReadOptions) ([]byte, error) {
 // A startKeyIncl of nil means the logical "bottom-most" possible key
 // and an endKeyExcl of nil means the logical "top-most" possible key.
 func (f *Footer) StartIterator(startKeyIncl, endKeyExcl []byte,
-	iteratorOptions IteratorOptions) (Iterator, error) {
+	options IteratorOptions) (Iterator, error) {
 	f.fref.AddRef()
-	iter, err := f.ss.StartIterator(startKeyIncl, endKeyExcl, iteratorOptions)
+
+	iter, err := f.ss.StartIterator(startKeyIncl, endKeyExcl, options)
 	if err != nil {
 		f.fref.DecRef()
 		return nil, err
 	}
-	return &iteratorWrapper{iter: iter, closer: f.fref}, nil
+
+	return &iteratorWrapper{iter: f.optimizeIter(iter), closer: f.fref}, nil
 }
