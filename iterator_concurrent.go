@@ -317,12 +317,10 @@ func (it *iteratorConcurrent) runReader(fref *FileRef,
 
 			bufLen := endVStart + endVLen - begKStart
 
-			buf := make([]byte, bufLen)
-
 			bufOffset := int64(sloc.BufOffset + begKStart)
 
-			nread, err := fref.file.ReadAt(buf, bufOffset)
-			if err != nil || nread != len(buf) {
+			buf, err := fref.ReadBufAt(bufOffset, int(bufLen))
+			if err != nil {
 				work.err = err
 			} else {
 				itrResult := &iterator{

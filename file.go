@@ -13,6 +13,7 @@ package moss
 
 import (
 	"io"
+	"fmt"
 	"os"
 	"sync"
 )
@@ -39,6 +40,13 @@ type FileRef struct {
 
 	beforeCloseCallbacks []func() // Optional callbacks invoked before final close.
 	afterCloseCallbacks  []func() // Optional callbacks invoked after final close.
+
+	cache map[posLen][]byte
+}
+
+type posLen struct {
+	pos int64
+	len int
 }
 
 type ioResult struct {
@@ -113,6 +121,44 @@ func (r *FileRef) DecRef() (err error) {
 
 func (r *FileRef) Close() error {
 	return r.DecRef()
+}
+
+// --------------------------------------------------------
+
+func (r *FileRef) ReadBufAt(pos int64, nread int) (buf []byte, err error) {
+	r.m.Lock()
+
+	if r.cache == nil {
+		r.cache = map[posLen][]byte{}
+	}
+
+	bufc, ok := r.cache[posLen{pos: pos, len: nread}]
+
+	r.m.Unlock()
+
+	if ok && bufc != nil {
+		return bufc, nil
+	}
+
+	buf = make([]byte, nread)
+
+	nreadActual, err := r.file.ReadAt(buf, pos)
+	if err != nil {
+		return nil, err
+	}
+
+	if nreadActual != nread {
+		return nil, fmt.Errorf("error-short-ReadBufAt")
+	}
+
+	r.m.Lock()
+	r.cache[posLen{pos: pos, len: nread}] = buf
+	n := len(r.cache)
+	r.m.Unlock()
+
+	fmt.Printf("cache size: %d\n", n)
+
+	return buf, nil
 }
 
 // --------------------------------------------------------
